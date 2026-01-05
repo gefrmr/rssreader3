@@ -461,46 +461,67 @@ function nextLine() {
 async function translateSentencesBatch(sentences, targetLang = "pt-BR") {
   if (sentences.length === 0) return [];
   
-  console.log(`[API] Vertaling aanvragen voor ${sentences.length} zinnen`);
+  console.log(`🔍 Vertaal ${sentences.length} zinnen naar ${targetLang}`);
   
   try {
     const url = `/api/translate?sentences=${encodeURIComponent(JSON.stringify(sentences))}&target=${targetLang}`;
+    console.log(`📤 API call: ${sentences.length} zinnen`);
     
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 20000); // 20 seconden timeout
+    const response = await fetch(url);
     
-    const startTime = Date.now();
-    const resp = await fetch(url, {
-      signal: controller.signal,
-      headers: {
-        'Cache-Control': 'no-cache'
-      }
-    });
-    clearTimeout(timeoutId);
-    
-    const duration = Date.now() - startTime;
-    console.log(`[API] Response ontvangen in ${duration}ms`);
-    
-    if (!resp.ok) {
-      console.error(`[API] Error ${resp.status}`);
-      return sentences; // Fallback naar origineel
+    if (!response.ok) {
+      console.error(`❌ API error: ${response.status}`);
+      return sentences;
     }
     
-    const data = await resp.json();
+    const data = await response.json();
+    console.log('📥 API response:', data);
+    
+    // EXTRA DEBUG: Log de volledige response
+    console.log('🔍 Full API response structure:', JSON.stringify(data).substring(0, 500));
+    
+    // VERSCHILLENDE RESPONSE FORMATEN
+    let translations = [];
     
     if (data.translations && Array.isArray(data.translations)) {
-      console.log(`[API] ${data.translations.length} vertalingen ontvangen`);
-      return data.translations;
-    } else if (data.warning) {
-      console.warn(`[API] Warning: ${data.warning}`);
-      return sentences;
-    } else {
-      console.error('[API] Onverwachte response:', data);
+      translations = data.translations;
+      console.log(`✅ Vertalingen gevonden: ${translations.length}`);
+    } 
+    else if (Array.isArray(data)) {
+      translations = data;
+      console.log(`✅ Direct array: ${translations.length} items`);
+    }
+    else if (data.text) {
+      translations = [data.text];
+      console.log(`✅ Single text: "${data.text.substring(0, 50)}..."`);
+    }
+    else {
+      console.error('❌ Onbekend response format:', data);
       return sentences;
     }
+    
+    // VALIDATIE
+    if (translations.length > 0) {
+      const firstTrans = translations[0] || '';
+      const firstOrig = sentences[0] || '';
+      
+      console.log(`🔍 Eerste origineel: "${firstOrig.substring(0, 50)}..."`);
+      console.log(`🔍 Eerste vertaling: "${firstTrans.substring(0, 50)}..."`);
+      
+      // Check of het Portugees is
+      const portugueseChars = firstTrans.match(/[áàâãéèêíìîóòôõúùûçñ]/gi);
+      console.log(`🔍 Portugese karakters gevonden: ${portugueseChars ? portugueseChars.length : 0}`);
+      
+      if (firstTrans === firstOrig) {
+        console.warn('⚠️ WAARSCHUWING: Vertaling gelijk aan origineel!');
+      }
+    }
+    
+    return translations;
+    
   } catch (error) {
-    console.error('[API] Fout:', error.name, error.message);
-    return sentences; // Fallback naar origineel
+    console.error('❌ Vertaling mislukt:', error);
+    return sentences;
   }
 }
 
