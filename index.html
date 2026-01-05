@@ -65,20 +65,19 @@
     text-decoration-thickness: 2px;
   }
 
-  /* Grammatica markering */
+  /* Grammatica markering - AANGEPAST */
   .translation-line strong {
     font-weight: bold !important;
-    background-color: rgba(255, 235, 59, 0.1);
-    padding: 0 2px;
-    border-radius: 2px;
+    /* Geen gele achtergrond meer */
+    background-color: transparent;
+    padding: 0;
   }
 
   .translation-line .noun {
-    color: #8b0000 !important;
-    font-weight: 500;
-    text-decoration: underline;
-    text-decoration-color: rgba(139, 0, 0, 0.3);
-    text-underline-offset: 2px;
+    color: #8b0000 !important; /* Donkerrood */
+    font-weight: normal; /* Geen extra vet */
+    /* Geen onderstreping */
+    text-decoration: none;
   }
 
   .toggle-row { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
@@ -408,25 +407,30 @@ async function translateArticleContent(html, targetLang = "pt-BR") {
         if (!grammarEnabled) {
           const tempDiv = document.createElement('div');
           tempDiv.innerHTML = translationHTML;
-          // Verwijder strong tags
+          // Verwijder strong tags (werkwoorden)
           tempDiv.querySelectorAll('strong').forEach(strong => {
             strong.replaceWith(strong.textContent);
           });
-          // Verwijder span tags maar behoud tekst
+          // Verwijder span tags voor zelfstandige naamwoorden
           tempDiv.querySelectorAll('span').forEach(span => {
             if (span.style.color === 'darkred' || span.classList.contains('noun')) {
               span.replaceWith(span.textContent);
             }
           });
-          // Converteer overgebleven span.noun naar tekst
-          tempDiv.querySelectorAll('.noun').forEach(noun => {
-            noun.replaceWith(noun.textContent);
-          });
           translationHTML = tempDiv.innerHTML;
         } else {
-          // Zorg ervoor dat darkred spans de noun klasse krijgen voor CSS
+          // Converteer darkred spans naar .noun klasse voor consistente styling
           translationHTML = translationHTML.replace(/<span style="color:darkred">/g, '<span class="noun">');
           translationHTML = translationHTML.replace(/<span style="color: darkred">/g, '<span class="noun">');
+          
+          // Zorg dat strong tags geen achtergrondkleur hebben
+          const tempDiv = document.createElement('div');
+          tempDiv.innerHTML = translationHTML;
+          tempDiv.querySelectorAll('strong').forEach(strong => {
+            strong.style.backgroundColor = 'transparent';
+            strong.style.padding = '0';
+          });
+          translationHTML = tempDiv.innerHTML;
         }
         
         translationSpan.innerHTML = translationHTML;
