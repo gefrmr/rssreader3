@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>RSS Reader – Instant Read</title>
+<title>RSS Reader – Fast Translation</title>
 
 <style>
   body { font-family: Arial, sans-serif; margin: 0; padding: 0; background: #f5f5f5; }
@@ -33,61 +33,45 @@
 
   .translation-group {
     margin-bottom: 12px;
-    padding: 8px;
-    border-radius: 6px;
-    transition: background-color 0.3s;
-  }
-
-  .translation-group.translating {
-    background-color: #f8f9fa;
-    border-left: 3px solid #0078ff;
-  }
-
-  .translation-group.translated {
-    background-color: #f0f9f0;
-    border-left: 3px solid #28a745;
+    border-left: 2px solid #e0e0e0;
+    padding-left: 8px;
   }
 
   .translation-original {
     display: block;
-    margin-bottom: 6px;
+    margin-bottom: 2px;
     line-height: 1.4;
-    color: #333;
-    font-weight: 500;
   }
 
   .translation-line {
     display: block;
     color: #003399;
     font-style: italic;
-    margin-left: 5px;
-    margin-bottom: 4px;
+    margin-left: 10px;
+    margin-bottom: 8px;
     line-height: 1.4;
     cursor: pointer;
-    padding: 4px 6px;
-    border-radius: 4px;
-    min-height: 22px;
-    border: 1px solid transparent;
-    transition: all 0.3s;
-  }
-
-  .translation-line:hover {
-    background-color: #f0f7ff;
-    border-color: #cce5ff;
+    padding: 2px 4px;
+    border-radius: 3px;
+    min-height: 24px;
   }
 
   .translation-line.loading {
-    color: #6c757d;
-    font-style: normal;
-    background: linear-gradient(90deg, #f8f9fa 25%, #e9ecef 50%, #f8f9fa 75%);
+    color: #999;
+    background: linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%);
     background-size: 200% 100%;
     animation: loading 1.5s infinite;
+    width: 80%;
+  }
+
+  .translation-line:hover:not(.loading) {
+    background-color: #f0f0f0;
   }
 
   .translation-line.active-line {
     background-color: #e3f2fd;
-    border-color: #0078ff;
-    box-shadow: 0 0 0 1px #0078ff;
+    text-decoration: underline;
+    text-decoration-thickness: 2px;
   }
 
   /* Grammatica markering */
@@ -99,38 +83,21 @@
     color: #8b0000 !important;
   }
 
-  /* Status indicator */
-  .status-indicator {
-    display: inline-block;
-    padding: 2px 8px;
-    border-radius: 12px;
-    font-size: 11px;
-    font-weight: bold;
-    margin-left: 10px;
-    vertical-align: middle;
-  }
-
-  .status-translating {
-    background: #fff3cd;
-    color: #856404;
-  }
-
-  .status-translated {
-    background: #d4edda;
-    color: #155724;
-  }
-
-  /* Quick stats */
-  .stats-bar {
-    display: flex;
-    justify-content: space-between;
-    background: #f8f9fa;
-    padding: 8px 12px;
-    border-radius: 6px;
+  /* Progress indicator */
+  .progress-container {
     margin: 10px 0;
-    font-size: 13px;
-    color: #495057;
-    border: 1px solid #e9ecef;
+    height: 4px;
+    background: #e0e0e0;
+    border-radius: 2px;
+    overflow: hidden;
+    display: none;
+  }
+  
+  .progress-bar {
+    height: 100%;
+    background: linear-gradient(90deg, #0078ff, #00aaff);
+    width: 0%;
+    transition: width 0.3s ease;
   }
 
   .toggle-row { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
@@ -144,31 +111,18 @@
 
   .audio-btn {
     flex: 1;
-    padding: 10px;
-    font-size: 15px;
+    padding: 12px;
+    font-size: 16px;
     border: none;
-    border-radius: 6px;
+    border-radius: 8px;
     background: #0078ff;
     color: white;
     font-weight: bold;
     text-align: center;
-    cursor: pointer;
-    transition: background-color 0.2s;
   }
 
-  .audio-btn:hover {
-    background: #0056cc;
-  }
-
-  .audio-btn:disabled {
-    background: #6c757d;
-    cursor: not-allowed;
-  }
-
-  .audio-btn.stop { background: #dc3545; }
-  .audio-btn.stop:hover { background: #c82333; }
-  .audio-btn.pause { background: #ffc107; color: #212529; }
-  .audio-btn.pause:hover { background: #e0a800; }
+  .audio-btn.stop { background: #cc0000; }
+  .audio-btn.pause { background: #ffaa00; }
 
   #progressBar {
     font-size: 13px;
@@ -182,32 +136,9 @@
     0% { background-position: 200% 0; }
     100% { background-position: -200% 0; }
   }
-
-  /* Notification */
-  .notification {
-    position: fixed;
-    bottom: 20px;
-    right: 20px;
-    background: #28a745;
-    color: white;
-    padding: 12px 20px;
-    border-radius: 6px;
-    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
-    z-index: 1000;
-    display: none;
-    animation: slideIn 0.3s ease;
-  }
-
-  @keyframes slideIn {
-    from { transform: translateX(100%); opacity: 0; }
-    to { transform: translateX(0); opacity: 1; }
-  }
 </style>
 </head>
 <body>
-
-<!-- Notification -->
-<div class="notification" id="notification"></div>
 
 <div class="container">
 
@@ -227,18 +158,19 @@
     <label for="toggleGrammar">Werkwoorden (vet) & zelfstandige naamwoorden (rood) markeren</label>
   </div>
 
-  <!-- Stats Bar -->
-  <div class="stats-bar" id="statsBar" style="display: none;">
-    <span id="statsText">Vertaling: 0/0 zinnen</span>
-    <span id="statsTime">~ 0s</span>
+  <!-- PROGRESS BAR -->
+  <div class="progress-container" id="progressContainer">
+    <div class="progress-bar" id="progressBarFill"></div>
   </div>
 
   <!-- AUDIO BUTTONS -->
   <div id="audioControls" class="audio-controls">
-    <button class="audio-btn" onclick="speakTranslation()" id="speakBtn">▶️ Afspelen</button>
+    <button class="audio-btn" onclick="speakTranslation()">▶️ Afspelen</button>
     <button class="audio-btn pause" onclick="pauseSpeaking()">⏸️ Pauze</button>
     <button class="audio-btn stop" onclick="stopSpeaking()">⏹️ Stop</button>
   </div>
+
+  <div id="progressBar"></div>
 
   <select id="feedSelect" onchange="loadSelectedFeed()"></select>
   <div id="carousel" class="carousel"></div>
@@ -251,240 +183,7 @@ let items = [];
 let currentIndex = 0;
 let currentArticleData = null;
 
-/* ========= INSTANT ARTICLE RENDERING ========= */
-
-async function loadArticle(index) {
-  stopSpeaking();
-  
-  const container = document.getElementById("article");
-  container.style.opacity = 0;
-  currentIndex = index;
-
-  try {
-    const link = items[index]?.link;
-    if (!link) return;
-
-    // Show "Loading..." but immediately
-    container.innerHTML = "<div style='padding: 20px; text-align: center;'>Artikel laden...</div>";
-    container.style.opacity = 1;
-
-    const resp = await fetch(`/api/article?url=${encodeURIComponent(link)}`);
-    const data = await resp.json();
-    const words = JSON.parse(localStorage.getItem("highlightWords") || "[]");
-
-    const html = data.content;
-    const title = data.title || "";
-
-    const translateOn = document.getElementById("toggleTranslate").checked;
-
-    // STEP 1: INSTANT RENDER - Show Dutch text immediately
-    const temp = document.createElement("div");
-    temp.innerHTML = html;
-    const text = temp.textContent || temp.innerText || "";
-    const sentences = splitIntoSentences(text);
-    
-    currentArticleData = {
-      title: title,
-      sentences: sentences,
-      highlightWords: words,
-      translations: new Array(sentences.length).fill(null),
-      translationStartTime: Date.now()
-    };
-
-    // Render article IMMEDIATELY with Dutch text
-    renderArticleInstantly(sentences, title, words);
-    
-    // Show stats bar
-    document.getElementById('statsBar').style.display = 'flex';
-    updateStats(0, sentences.length);
-
-    // STEP 2: Start background translation if enabled
-    if (translateOn) {
-      document.getElementById("audioControls").style.display = "flex";
-      document.getElementById("speakBtn").disabled = true;
-      
-      // Start progressive translation
-      translateArticleProgressively(sentences, "pt-BR");
-    } else {
-      document.getElementById("audioControls").style.display = "none";
-    }
-
-  } catch (error) {
-    console.error("Fout bij laden artikel:", error);
-    container.innerHTML = "<div style='padding: 20px; color: #dc3545;'>Fout bij laden van artikel.</div>";
-    container.style.opacity = 1;
-  }
-}
-
-function renderArticleInstantly(sentences, title, words) {
-  const container = document.getElementById("article");
-  const translateOn = document.getElementById("toggleTranslate").checked;
-  
-  let html = `<h2>${applyHighlights(title, words)}</h2>`;
-  
-  sentences.forEach((sentence, index) => {
-    const sentenceId = `sentence-${index}`;
-    const translationId = `translation-${index}`;
-    
-    html += `
-      <div class="translation-group" id="${sentenceId}">
-        <span class="translation-original">${applyHighlights(sentence, words)}</span>
-        <br>
-        <span class="translation-line ${translateOn ? 'loading' : ''}" 
-               id="${translationId}"
-               data-index="${index}"
-               onclick="playSingleLine(${index})">
-          ${translateOn ? 'Vertaling wordt geladen...' : 'Vertaling uitgeschakeld'}
-        </span>
-      </div>
-    `;
-  });
-  
-  container.innerHTML = html;
-  container.style.opacity = 1;
-}
-
-/* ========= PROGRESSIVE TRANSLATION ========= */
-
-async function translateArticleProgressively(sentences, targetLang = "pt-BR") {
-  const startTime = Date.now();
-  const totalSentences = sentences.length;
-  let translatedCount = 0;
-  
-  // OPTIMAL BATCH STRATEGY: Small batches for quick feedback
-  const BATCH_SIZE = 4; // Small batches = faster first results
-  
-  // Process in sequential batches (not parallel) for predictable order
-  for (let i = 0; i < sentences.length; i += BATCH_SIZE) {
-    const batch = sentences.slice(i, i + BATCH_SIZE);
-    const batchStartIdx = i;
-    
-    try {
-      // Translate this batch
-      const translations = await translateSentencesBatch(batch, targetLang);
-      
-      // Update UI for each sentence in this batch
-      translations.forEach((translation, batchIndex) => {
-        const sentenceIndex = batchStartIdx + batchIndex;
-        if (sentenceIndex < sentences.length) {
-          // Store translation
-          if (currentArticleData) {
-            currentArticleData.translations[sentenceIndex] = translation;
-          }
-          
-          // Update UI immediately
-          updateSentenceTranslation(sentenceIndex, translation);
-          translatedCount++;
-          
-          // Update stats
-          const elapsedSeconds = Math.round((Date.now() - startTime) / 1000);
-          const remaining = totalSentences - translatedCount;
-          const estimatedRemaining = Math.round((elapsedSeconds / translatedCount) * remaining);
-          
-          updateStats(translatedCount, totalSentences, estimatedRemaining);
-          
-          // Visual feedback
-          const group = document.getElementById(`sentence-${sentenceIndex}`);
-          if (group) {
-            group.classList.remove('translating');
-            group.classList.add('translated');
-          }
-        }
-      });
-      
-      // Show notification for first batch
-      if (i === 0 && translatedCount > 0) {
-        showNotification(`Eerste ${Math.min(4, translatedCount)} zinnen vertaald!`);
-      }
-      
-    } catch (error) {
-      console.error(`Batch ${i/BATCH_SIZE + 1} failed:`, error);
-      // Mark these sentences as failed but continue
-      for (let j = 0; j < Math.min(BATCH_SIZE, sentences.length - i); j++) {
-        const sentenceIndex = i + j;
-        updateSentenceTranslation(sentenceIndex, 
-          `<span style="color: #dc3545;">[Vertaling tijdelijk niet beschikbaar]</span>`);
-      }
-    }
-    
-    // Small delay between batches to avoid overwhelming
-    if (i + BATCH_SIZE < sentences.length) {
-      await new Promise(resolve => setTimeout(resolve, 300));
-    }
-  }
-  
-  // Final update
-  const totalTime = Math.round((Date.now() - startTime) / 1000);
-  updateStats(totalSentences, totalSentences, 0);
-  showNotification(`Alle ${totalSentences} zinnen vertaald in ${totalTime} seconden`);
-  
-  // Enable speak button
-  document.getElementById("speakBtn").disabled = false;
-}
-
-function updateSentenceTranslation(index, translation) {
-  const translationEl = document.getElementById(`translation-${index}`);
-  if (!translationEl) return;
-  
-  translationEl.classList.remove('loading');
-  
-  const grammarEnabled = document.getElementById("toggleGrammar").checked;
-  let translationHTML = translation || "";
-  
-  // Apply grammar markup
-  if (grammarEnabled && translationHTML) {
-    translationHTML = translationHTML
-      .replace(/<span style="color:darkred">/g, '<span class="noun">')
-      .replace(/<span style="color: darkred">/g, '<span class="noun">');
-  } else if (!grammarEnabled && translationHTML) {
-    // Remove markup if grammar disabled
-    translationHTML = translationHTML
-      .replace(/<strong>/g, '')
-      .replace(/<\/strong>/g, '')
-      .replace(/<span[^>]*>/g, '')
-      .replace(/<\/span>/g, '');
-  }
-  
-  translationEl.innerHTML = translationHTML;
-  translationEl.onclick = () => playSingleLine(index);
-  
-  // Visual feedback
-  const group = document.getElementById(`sentence-${index}`);
-  if (group) {
-    group.classList.add('translating');
-  }
-}
-
-function updateStats(translated, total, estimatedRemaining = 0) {
-  const statsText = document.getElementById('statsText');
-  const statsTime = document.getElementById('statsTime');
-  
-  if (statsText) {
-    statsText.textContent = `Vertaling: ${translated}/${total} zinnen`;
-  }
-  
-  if (statsTime) {
-    if (estimatedRemaining > 0) {
-      statsTime.textContent = `~ ${estimatedRemaining}s resterend`;
-    } else if (translated === total && total > 0) {
-      statsTime.textContent = `Klaar!`;
-    } else {
-      statsTime.textContent = `Bezig...`;
-    }
-  }
-}
-
-function showNotification(message) {
-  const notification = document.getElementById('notification');
-  notification.textContent = message;
-  notification.style.display = 'block';
-  
-  setTimeout(() => {
-    notification.style.display = 'none';
-  }, 3000);
-}
-
-/* ========= FIXED TRANSLATION BATCH FUNCTION ========= */
+/* ========= OPTIMIZED BATCH TRANSLATION ========= */
 
 async function translateSentencesBatch(sentences, targetLang = "pt-BR") {
   if (sentences.length === 0) return [];
@@ -542,6 +241,11 @@ async function translateSentencesBatch(sentences, targetLang = "pt-BR") {
       
       if (firstTrans === firstOrig) {
         console.warn('⚠️ WAARSCHUWING: Vertaling gelijk aan origineel!');
+        // Als het niet Portugees is, markeer het als mislukt
+        if (!portugueseChars || portugueseChars.length < 1) {
+          console.error('❌ Vertaling mislukt - geen Portugees gedetecteerd');
+          return sentences.map(s => `<span style="color: red">[Vertaling mislukt: ${s}]</span>`);
+        }
       }
     }
     
@@ -549,8 +253,62 @@ async function translateSentencesBatch(sentences, targetLang = "pt-BR") {
     
   } catch (error) {
     console.error('❌ Vertaling mislukt:', error);
-    return sentences;
+    return sentences.map(s => `<span style="color: #999">[Vertaling tijdelijk niet beschikbaar]</span>`);
   }
+}
+
+/* ========= TRANSLATION CACHE ========= */
+const TRANSLATION_CACHE = new Map();
+
+function getCacheKey(sentences, targetLang) {
+  // Simple hash function for cache key
+  const text = sentences.join('|') + targetLang;
+  let hash = 0;
+  for (let i = 0; i < text.length; i++) {
+    const char = text.charCodeAt(i);
+    hash = ((hash << 5) - hash) + char;
+    hash = hash & hash;
+  }
+  return 'trans_' + Math.abs(hash);
+}
+
+async function translateWithCache(sentences, targetLang = "pt-BR") {
+  if (sentences.length === 0) return [];
+  
+  const cacheKey = getCacheKey(sentences, targetLang);
+  
+  // Check memory cache first
+  if (TRANSLATION_CACHE.has(cacheKey)) {
+    console.log(`[Cache] Memory hit for ${sentences.length} sentences`);
+    return TRANSLATION_CACHE.get(cacheKey);
+  }
+  
+  // Check localStorage
+  try {
+    const cached = localStorage.getItem(cacheKey);
+    if (cached) {
+      const parsed = JSON.parse(cached);
+      TRANSLATION_CACHE.set(cacheKey, parsed);
+      console.log(`[Cache] LocalStorage hit for ${sentences.length} sentences`);
+      return parsed;
+    }
+  } catch (e) {
+    console.log('[Cache] LocalStorage not available');
+  }
+  
+  // Get fresh translation
+  console.log(`[Cache] Miss - fetching ${sentences.length} sentences`);
+  const translations = await translateSentencesBatch(sentences, targetLang);
+  
+  // Cache the result
+  TRANSLATION_CACHE.set(cacheKey, translations);
+  try {
+    localStorage.setItem(cacheKey, JSON.stringify(translations));
+  } catch (e) {
+    // LocalStorage might be full, that's ok
+  }
+  
+  return translations;
 }
 
 /* ========= AUDIO ENGINE ========= */
@@ -568,6 +326,24 @@ function getBrazilianVoice() {
     voices.find(v => v.lang.startsWith("pt")) ||
     voices[0]
   );
+}
+
+function updateProgress() {
+  const bar = document.getElementById("progressBar");
+  if (!isSpeaking) {
+    bar.style.display = "none";
+    return;
+  }
+  bar.style.display = "block";
+  bar.innerText = `Zin ${currentLineIndex + 1} van ${lines.length}`;
+}
+
+function highlightActiveLine() {
+  document.querySelectorAll(".translation-line").forEach(el => {
+    el.classList.remove("active-line");
+  });
+  const active = document.querySelector(`.translation-line[data-index="${currentLineIndex}"]`);
+  if (active) active.classList.add("active-line");
 }
 
 function speakTranslation() {
@@ -596,8 +372,13 @@ function speakTranslation() {
   function speakNext() {
     if (!isSpeaking || currentLineIndex >= lines.length) {
       isSpeaking = false;
+      updateProgress();
+      highlightActiveLine();
       return;
     }
+
+    highlightActiveLine();
+    updateProgress();
 
     currentUtterance = new SpeechSynthesisUtterance(lines[currentLineIndex]);
     currentUtterance.voice = voice;
@@ -632,6 +413,8 @@ function stopSpeaking() {
   isSpeaking = false;
   isPaused = false;
   speechSynthesis.cancel();
+  updateProgress();
+  document.querySelectorAll(".translation-line").forEach(el => el.classList.remove("active-line"));
 }
 
 function playSingleLine(i) {
@@ -640,6 +423,9 @@ function playSingleLine(i) {
   const el = document.querySelector(`.translation-line[data-index="${i}"]`);
   if (!el || el.classList.contains('loading')) return;
 
+  document.querySelectorAll(".translation-line").forEach(x => x.classList.remove("active-line"));
+  el.classList.add("active-line");
+
   const temp = document.createElement('div');
   temp.innerHTML = el.innerHTML;
   temp.querySelectorAll('strong, .noun').forEach(tag => {
@@ -647,17 +433,17 @@ function playSingleLine(i) {
   });
   const text = temp.textContent.trim();
 
-  if (!text) return;
-
   const u = new SpeechSynthesisUtterance(text);
   u.voice = voice;
   u.rate = 1.0;
   u.pitch = 1.0;
 
+  u.onend = () => el.classList.remove("active-line");
+
   speechSynthesis.speak(u);
 }
 
-/* ========= HELPER FUNCTIONS ========= */
+/* ========= SENTENCE PROCESSING ========= */
 
 function splitIntoSentences(text) {
   return text
@@ -667,14 +453,105 @@ function splitIntoSentences(text) {
     .filter(s => s.trim().length > 0);
 }
 
-function applyHighlights(html, words) {
-  if (!words || words.length === 0) return html;
-  const pattern = [...words]
-    .sort((a, b) => b.length - a.length)
-    .map(w => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
-    .join("|");
-  const regex = new RegExp(`\\b(${pattern})\\b(?=[^>]*<)`, "gi");
-  return html.replace(regex, m => `<mark class="custom-highlight">${m}</mark>`);
+function updateProgressBar(percent, message = "") {
+  const container = document.getElementById("progressContainer");
+  const bar = document.getElementById("progressBarFill");
+  
+  if (percent <= 0 || percent >= 100) {
+    container.style.display = "none";
+  } else {
+    container.style.display = "block";
+    bar.style.width = `${percent}%`;
+  }
+}
+
+async function translateArticleContent(html, targetLang = "pt-BR") {
+  const temp = document.createElement("div");
+  temp.innerHTML = html;
+  
+  // Extract all text content
+  const text = temp.textContent || temp.innerText || "";
+  const sentences = splitIntoSentences(text);
+  
+  if (sentences.length === 0) {
+    return html;
+  }
+  
+  console.log(`[Process] Found ${sentences.length} sentences`);
+  
+  // OPTIMIZATION: Process in optimal batches
+  const OPTIMAL_BATCH_SIZE = 12; // Best balance for speed
+  const allTranslations = [];
+  
+  // Process in parallel batches for maximum speed
+  const batchPromises = [];
+  let completedBatches = 0;
+  
+  for (let i = 0; i < sentences.length; i += OPTIMAL_BATCH_SIZE) {
+    const batch = sentences.slice(i, Math.min(i + OPTIMAL_BATCH_SIZE, sentences.length));
+    
+    batchPromises.push(
+      translateWithCache(batch, targetLang).then(translations => {
+        completedBatches++;
+        
+        // Update progress
+        const progress = Math.round((completedBatches / Math.ceil(sentences.length / OPTIMAL_BATCH_SIZE)) * 100);
+        updateProgressBar(progress, `Batch ${completedBatches}`);
+        
+        return { startIdx: i, translations };
+      })
+    );
+  }
+  
+  // Show progress bar
+  updateProgressBar(10, "Start vertaling...");
+  
+  // Wait for all batches
+  const batchResults = await Promise.all(batchPromises);
+  
+  // Combine results in correct order
+  batchResults.sort((a, b) => a.startIdx - b.startIdx);
+  batchResults.forEach(result => {
+    allTranslations.push(...result.translations);
+  });
+  
+  // Hide progress bar
+  updateProgressBar(100);
+  setTimeout(() => updateProgressBar(0), 500);
+  
+  // Build the HTML with translations
+  let outputHTML = '';
+  const grammarEnabled = document.getElementById("toggleGrammar").checked;
+  
+  sentences.forEach((sentence, index) => {
+    let translationHTML = allTranslations[index] || "";
+    
+    // Apply grammar markup if enabled
+    if (grammarEnabled && translationHTML) {
+      translationHTML = translationHTML
+        .replace(/<span style="color:darkred">/g, '<span class="noun">')
+        .replace(/<span style="color: darkred">/g, '<span class="noun">');
+    } else if (!grammarEnabled && translationHTML) {
+      // Remove markup if grammar disabled
+      translationHTML = translationHTML
+        .replace(/<strong>/g, '')
+        .replace(/<\/strong>/g, '')
+        .replace(/<span[^>]*>/g, '')
+        .replace(/<\/span>/g, '');
+    }
+    
+    outputHTML += `
+      <div class="translation-group">
+        <span class="translation-original">${sentence}</span>
+        <br>
+        <span class="translation-line" data-index="${index}" onclick="playSingleLine(${index})">
+          ${translationHTML || '<em style="color: #666">Vertaling laden...</em>'}
+        </span>
+      </div>
+    `;
+  });
+  
+  return outputHTML;
 }
 
 /* ========= CLOUD SYNC + RSS ========= */
@@ -706,6 +583,16 @@ async function startSync() {
   if (feeds) localStorage.setItem("rssFeeds", JSON.stringify(feeds));
 
   statusEl.textContent = words && feeds ? "(Cloud OK)" : "(Offline)";
+}
+
+function applyHighlights(html, words) {
+  if (!words || words.length === 0) return html;
+  const pattern = [...words]
+    .sort((a, b) => b.length - a.length)
+    .map(w => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+    .join("|");
+  const regex = new RegExp(`\\b(${pattern})\\b(?=[^>]*<)`, "gi");
+  return html.replace(regex, m => `<mark class="custom-highlight">${m}</mark>`);
 }
 
 function loadSavedFeeds() {
@@ -748,6 +635,91 @@ function loadSelectedFeed() {
   loadFeed(document.getElementById("feedSelect").value);
 }
 
+async function loadArticle(index) {
+  stopSpeaking();
+
+  const container = document.getElementById("article");
+  container.style.opacity = 0;
+  container.innerHTML = "Artikel laden...";
+  currentIndex = index;
+
+  try {
+    const link = items[index]?.link;
+    if (!link) return;
+
+    const resp = await fetch(`/api/article?url=${encodeURIComponent(link)}`);
+    const data = await resp.json();
+    const words = JSON.parse(localStorage.getItem("highlightWords") || "[]");
+
+    let html = data.content;
+    const title = data.title || "";
+
+    const translateOn = document.getElementById("toggleTranslate").checked;
+
+    document.getElementById("audioControls").style.display =
+      translateOn ? "flex" : "none";
+
+    if (translateOn) {
+      // Show loading state for translations
+      const temp = document.createElement("div");
+      temp.innerHTML = html;
+      const text = temp.textContent || temp.innerText || "";
+      const sentences = splitIntoSentences(text);
+      
+      // Show skeleton while translating
+      let skeletonHTML = `<h2>${applyHighlights(title, words)}</h2>`;
+      sentences.forEach((sentence, idx) => {
+        skeletonHTML += `
+          <div class="translation-group">
+            <span class="translation-original">${sentence}</span>
+            <br>
+            <span class="translation-line loading" data-index="${idx}"></span>
+          </div>
+        `;
+      });
+      
+      container.innerHTML = skeletonHTML;
+      requestAnimationFrame(() => container.style.opacity = 1);
+      
+      // Now do the translation
+      html = await translateArticleContent(html, "pt-BR");
+      
+      // Update with real translations
+      container.innerHTML = `
+        <h2>${applyHighlights(title, words)}</h2>
+        ${html}
+      `;
+      
+    } else {
+      // Just show original content without translation
+      const temp = document.createElement("div");
+      temp.innerHTML = html;
+      const text = temp.textContent || temp.innerText || "";
+      const sentences = splitIntoSentences(text);
+      
+      html = sentences.map(sentence => `
+        <div class="translation-group">
+          <span class="translation-original">${sentence}</span>
+          <br>
+          <span class="translation-line"><em>Vertaling uitgeschakeld</em></span>
+        </div>
+      `).join('');
+      
+      container.innerHTML = `
+        <h2>${applyHighlights(title, words)}</h2>
+        ${html}
+      `;
+      
+      requestAnimationFrame(() => container.style.opacity = 1);
+    }
+
+  } catch (error) {
+    console.error("Fout bij laden artikel:", error);
+    container.innerHTML = "Fout bij laden van artikel.";
+    updateProgressBar(0);
+  }
+}
+
 /* ========= SWIPE ========= */
 
 let carouselScrollTimeout;
@@ -780,13 +752,9 @@ document.getElementById("carousel").addEventListener("click", (e) => {
 /* ========= TOGGLE EVENT LISTENERS ========= */
 
 document.getElementById("toggleGrammar").addEventListener("change", function() {
-  // Re-apply grammar markup to existing translations
-  if (currentArticleData && currentArticleData.translations) {
-    currentArticleData.translations.forEach((translation, index) => {
-      if (translation) {
-        updateSentenceTranslation(index, translation);
-      }
-    });
+  if (currentArticleData) {
+    // Reload current article with new grammar setting
+    loadArticle(currentIndex);
   }
 });
 
@@ -797,14 +765,41 @@ document.getElementById("toggleTranslate").addEventListener("change", function()
   }
 });
 
+/* ========= DEBUG FUNCTIONS ========= */
+
+window.debugTranslation = async function() {
+  console.log("=== TRANSLATION DEBUG ===");
+  
+  const testSentences = [
+    "The weather is nice today.",
+    "I want to learn Portuguese.",
+    "This is a simple test."
+  ];
+  
+  console.log("Testing with:", testSentences);
+  
+  const result = await translateSentencesBatch(testSentences, "pt-BR");
+  console.log("Result:", result);
+  
+  // Check if Portuguese
+  if (result[0]) {
+    const hasPortuguese = /[áàâãéèêíìîóòôõúùûçñ]/i.test(result[0]);
+    console.log("Has Portuguese characters?", hasPortuguese);
+    console.log("Sample:", result[0]);
+  }
+};
+
 /* ========= INIT ========= */
 
 async function init() {
+  console.log("Reader initialiseren...");
   await startSync();
   loadSavedFeeds();
 
   if (typeof speechSynthesis !== "undefined") {
-    speechSynthesis.onvoiceschanged = () => {};
+    speechSynthesis.onvoiceschanged = () => {
+      console.log("Spraakstemmen geladen:", speechSynthesis.getVoices().length);
+    };
   }
 }
 
