@@ -366,40 +366,134 @@ function nextLine() {
   playSingleLine(currentLineIndex);
 }
 
-/* ========= BATCH VERTALING ========= */
+/* ========= BATCH VERTALING - OPTIMALISATIE ========= */
 
 async function translateSentencesBatch(sentences, targetLang = "pt-BR") {
+  if (sentences.length === 0) return [];
+  
+  // DEBUG: Toon wat we versturen
+  console.log(`Vertaling aanvragen voor ${sentences.length} zinnen`);
+  console.log("Eerste zin:", sentences[0].substring(0, 50) + "...");
+  
   try {
-    const url = `/api/translate?sentences=${JSON.stringify(sentences)}&target=${targetLang}`;
-    console.log("Vertaling aanvragen voor", sentences.length, "zinnen");
+    const url = `/api/translate?sentences=${encodeURIComponent(JSON.stringify(sentences))}&target=${targetLang}`;
     
-    const resp = await fetch(url);
+    console.time(`API-call-${sentences.length}-zinnen`);
+    const resp = await fetch(url, {
+      // Timeout na 15 seconden
+      signal: AbortSignal.timeout(15000)
+    });
+    console.timeEnd(`API-call-${sentences.length}-zinnen`);
+    
     if (!resp.ok) {
+      console.error(`API error: ${resp.status}`, await resp.text());
       throw new Error(`API error: ${resp.status}`);
     }
     
     const data = await resp.json();
-    console.log("Vertaling ontvangen:", data.translations ? data.translations.length : 0, "resultaten");
+    console.log(`API succes: ${data.translations?.length || 0} vertalingen ontvangen`);
     
-    return Array.isArray(data.translations) ? data.translations : [];
+    return Array.isArray(data.translations) ? data.translations : sentences;
   } catch (error) {
-    console.error('Vertalingsfout:', error);
+    console.error('Vertalingsfout:', error.name, error.message);
     // Fallback: geef originele zinnen terug
     return sentences;
   }
 }
 
-function splitIntoSentences(text) {
-  return text
-    .replace(/\s+/g, " ")
-    .trim()
-    .split(/(?<![A-Z][a-z]\.)(?<![A-Z][a-z][a-z]\.)(?<![Mm]r\.)(?<![Mm]rs\.)(?<![Dd]r\.)(?<![Pp]rof\.)(?<![Ss]r\.)(?<![Jj]r\.)(?<![Vv]s\.)(?<![Ee]tc\.)(?<![Ee]g\.)(?<![Ii]e\.)(?<=[.!?])\s+/)
-    .filter(s => s.trim().length > 0);
+// NIEUW: Optimale batch-grootte bepalen op basis van zinlengte
+function createOptimalBatches(sentences, maxBatchSize = 3) {
+  const batches = [];
+  let currentBatch = [];
+  let currentBatchLength = 0;
+  
+  for (const sentence of sentences) {
+    const sentenceLength = sentence.length;
+    
+    // Als deze zin te lang is, zet hem in eigen batch
+    if (sentenceLength > 500) {
+      if (currentBatch.length > 0) {
+        batches.push([...currentBatch]);
+        currentBatch = [];
+        currentBatchLength = 0;
+      }
+      batches.push([sentence]);
+      continue;
+    }
+    
+    // Als batch te vol zou worden, start nieuwe batch
+    if (currentBatch.length >= maxBatchSize || currentBatchLength + sentenceLength > 1500) {
+      if (currentBatch.length > 0) {
+        batches.push([...currentBatch]);
+      }
+      currentBatch = [sentence];
+      currentBatchLength = sentenceLength;
+    } else {
+      currentBatch.push(sentence);
+      currentBatchLength += sentenceLength;
+    }
+  }
+  
+  // Voeg laatste batch toe
+  if (currentBatch.length > 0) {
+    batches.push(currentBatch);
+  }
+  
+  console.log(`Aangemaakt: ${batches.length} batches voor ${sentences.length} zinnen`);
+  return batches;
 }
 
-/* ========= PAGINERING FUNCTIES ========= */
+// NIEUW: Parallelle verwerking met progress updates
+async function translateSentencesInParallel(sentences, targetLang = "pt-BR", onProgress) {
+  if (sentences.length === 0) return [];
+  
+  // Creëer optimale batches
+  const batches = createOptimalBatches(sentences);
+  const allTranslations = new Array(sentences.length).fill("");
+  let sentenceIndex = 0;
+  
+  // Verwerk batches in parallel (max 2 tegelijk voor betere performance)
+  const MAX_CONCURRENT = 2;
+  
+  for (let i = 0; i < batches.length; i += MAX_CONCURRENT) {
+    const batchGroup = batches.slice(i, i + MAX_CONCURRENT);
+    
+    // Start alle batches in deze groep
+    const batchPromises = batchGroup.map((batch, batchIndex) => {
+      return translateSentencesBatch(batch, targetLang).then(translations => {
+        // Update progress
+        if (onProgress) {
+          const progress = Math.round(((i + batchIndex + 1) / batches.length) * 100);
+          onProgress(progress);
+        }
+        return { batchIndex: i + batchIndex, translations };
+      });
+    });
+    
+    // Wacht op deze groep batches
+    const results = await Promise.all(batchPromises);
+    
+    // Voeg vertalingen toe aan resultaat array
+    results.forEach(result => {
+      const batch = batches[result.batchIndex];
+      result.translations.forEach((translation, transIndex) => {
+        if (sentenceIndex < sentences.length) {
+          allTranslations[sentenceIndex] = translation || "";
+          sentenceIndex++;
+        }
+      });
+    });
+    
+    // Debug log
+    console.log(`Voltooid: ${Math.min(i + MAX_CONCURRENT, batches.length)}/${batches.length} batches`);
+  }
+  
+  return allTranslations;
+}
 
-function showLoadingIndicator(progress) {
+/* ========= PAGINERING FUNCTIES - OPTIMALISATIE ========= */
+
+function showLoadingIndicator(progress, message = "") {
   const indicator = document.getElementById("loadingIndicator");
   const progressSpan = document.getElementById("loadingProgress");
   
@@ -407,7 +501,7 @@ function showLoadingIndicator(progress) {
     indicator.style.display = "none";
   } else {
     indicator.style.display = "block";
-    progressSpan.textContent = `${progress}%`;
+    progressSpan.textContent = message ? `${message} ${progress}%` : `${progress}%`;
   }
 }
 
@@ -424,14 +518,23 @@ async function loadTranslationsForPage(pageNumber) {
     return [];
   }
   
+  console.log(`Vertalen pagina ${pageNumber + 1}: ${pageSentences.length} zinnen`);
+  
   // Toon laadindicator
-  showLoadingIndicator(30);
+  showLoadingIndicator(10, "Vertaling starten...");
   
   try {
-    // Vertaal de zinnen voor deze pagina
-    const translations = await translateSentencesBatch(pageSentences, "pt-BR");
+    // Gebruik parallelle verwerking
+    const translations = await translateSentencesInParallel(
+      pageSentences, 
+      "pt-BR",
+      (progress) => {
+        showLoadingIndicator(10 + Math.round(progress * 0.8), "Vertaling:");
+      }
+    );
     
     showLoadingIndicator(100);
+    console.log(`Vertaling voltooid voor pagina ${pageNumber + 1}`);
     
     return translations;
   } catch (error) {
@@ -441,70 +544,35 @@ async function loadTranslationsForPage(pageNumber) {
   }
 }
 
-function renderPage(pageNumber, translations = []) {
-  if (!currentArticleData || !currentArticleData.sentences) {
-    return;
-  }
+// NIEUW: Snelle render functie zonder vertalingen
+function renderPageSkeleton(pageNumber) {
+  if (!currentArticleData || !currentArticleData.sentences) return;
   
   const container = document.getElementById("article");
   const sentences = currentArticleData.sentences;
   const title = currentArticleData.title || "";
   const words = currentArticleData.highlightWords || [];
   
-  // Bereken welke zinnen voor deze pagina
   const startIndex = pageNumber * SENTENCES_PER_PAGE;
   const endIndex = Math.min(startIndex + SENTENCES_PER_PAGE, sentences.length);
   const pageSentences = sentences.slice(startIndex, endIndex);
   
-  // Controleer of vertalingen al bestaan of gebruik nieuwe
-  let pageTranslations = translations;
-  
-  // Als er geen nieuwe vertalingen zijn, kijk of we ze al hebben opgeslagen
-  if (pageTranslations.length === 0 && currentArticleData.translations) {
-    pageTranslations = currentArticleData.translations.slice(startIndex, endIndex);
-  }
-  
-  // Bouw HTML voor deze pagina
+  // Bouw HTML zonder vertalingen (snel)
   let html = `<h2>${applyHighlights(title, words)}</h2>`;
   
   pageSentences.forEach((sentence, index) => {
-    const globalIndex = startIndex + index;
-    let translationHTML = pageTranslations[index] || "";
-    
-    // Als er geen vertaling is en vertaling is ingeschakeld, toon placeholder
-    if (!translationHTML && document.getElementById("toggleTranslate").checked) {
-      translationHTML = "<em>Vertaling laden...</em>";
-    }
-    
-    // Pas grammaticamarkering aan indien nodig
-    const grammarEnabled = document.getElementById("toggleGrammar").checked;
-    if (!grammarEnabled && translationHTML) {
-      // Verwijder grammaticamarkering
-      translationHTML = translationHTML
-        .replace(/<strong>/g, '')
-        .replace(/<\/strong>/g, '')
-        .replace(/<span style="color:darkred">/g, '')
-        .replace(/<span class="noun">/g, '')
-        .replace(/<\/span>/g, '');
-    } else if (grammarEnabled && translationHTML) {
-      // Zorg ervoor dat darkred spans de noun klasse krijgen
-      translationHTML = translationHTML
-        .replace(/<span style="color:darkred">/g, '<span class="noun">')
-        .replace(/<span style="color: darkred">/g, '<span class="noun">');
-    }
-    
     html += `
-      <div class="translation-group">
+      <div class="translation-group" id="sentence-${startIndex + index}">
         <span class="translation-original">${applyHighlights(sentence, words)}</span>
         <br>
-        <span class="translation-line" data-index="${index}" onclick="playSingleLine(${index})">
-          ${translationHTML}
+        <span class="translation-line" data-index="${index}">
+          <em class="loading-text">Vertaling laden...</em>
         </span>
       </div>
     `;
   });
   
-  // Voeg paginering controls toe
+  // Voeg paginering toe
   html += `
     <div class="pagination-controls">
       <button class="pagination-btn" onclick="goToPage(${pageNumber - 1})" ${pageNumber === 0 ? 'disabled' : ''}>
@@ -523,34 +591,58 @@ function renderPage(pageNumber, translations = []) {
   container.innerHTML = html;
   container.style.opacity = 0;
   
-  // Update audio controls
-  const translateOn = document.getElementById("toggleTranslate").checked;
-  document.getElementById("audioControls").style.display =
-  document.getElementById("audioNav").style.display =
-  document.getElementById("speedControl").style.display =
-    translateOn ? "flex" : "none";
-  
   // Animeer het verschijnen
   requestAnimationFrame(() => {
     container.style.opacity = 1;
   });
   
   currentPage = pageNumber;
-  
-  // Sla vertalingen op voor hergebruik
-  if (translations.length > 0) {
-    if (!currentArticleData.translations) {
-      currentArticleData.translations = new Array(currentArticleData.sentences.length).fill("");
-    }
-    
-    translations.forEach((translation, index) => {
-      if (translation && translation !== "<em>Vertaling laden...</em>") {
-        currentArticleData.translations[startIndex + index] = translation;
-      }
-    });
-  }
 }
 
+// NIEUW: Update individuele zinnen met vertalingen
+function updatePageWithTranslations(pageNumber, translations) {
+  const startIndex = pageNumber * SENTENCES_PER_PAGE;
+  
+  translations.forEach((translation, index) => {
+    const globalIndex = startIndex + index;
+    const translationLine = document.querySelector(`#sentence-${globalIndex} .translation-line`);
+    
+    if (translationLine) {
+      let translationHTML = translation || "";
+      
+      // Pas grammaticamarkering aan
+      const grammarEnabled = document.getElementById("toggleGrammar").checked;
+      if (!grammarEnabled && translationHTML) {
+        translationHTML = translationHTML
+          .replace(/<strong>/g, '')
+          .replace(/<\/strong>/g, '')
+          .replace(/<span style="color:darkred">/g, '')
+          .replace(/<span class="noun">/g, '')
+          .replace(/<\/span>/g, '');
+      } else if (grammarEnabled && translationHTML) {
+        translationHTML = translationHTML
+          .replace(/<span style="color:darkred">/g, '<span class="noun">')
+          .replace(/<span style="color: darkred">/g, '<span class="noun">');
+      }
+      
+      // Update de vertaling
+      translationLine.innerHTML = translationHTML || "";
+      translationLine.onclick = () => playSingleLine(index);
+      
+      // Verwijder loading class
+      translationLine.classList.remove("loading");
+    }
+  });
+  
+  // Update audio controls
+  const translateOn = document.getElementById("toggleTranslate").checked;
+  document.getElementById("audioControls").style.display =
+  document.getElementById("audioNav").style.display =
+  document.getElementById("speedControl").style.display =
+    translateOn ? "flex" : "none";
+}
+
+// HERZIEN: goToPage functie
 async function goToPage(pageNumber) {
   if (pageNumber < 0 || pageNumber >= totalPages) {
     return;
@@ -558,16 +650,39 @@ async function goToPage(pageNumber) {
   
   stopSpeaking();
   
-  // Toon eerst de pagina zonder vertalingen (snelle feedback)
-  renderPage(pageNumber, []);
+  // Toon eerst skelet (super snel)
+  renderPageSkeleton(pageNumber);
   
-  // Als vertaling is ingeschakeld, laad dan vertalingen
-  if (document.getElementById("toggleTranslate").checked) {
-    const translations = await loadTranslationsForPage(pageNumber);
+  // Als vertaling is ingeschakeld, laad vertalingen
+  const translateOn = document.getElementById("toggleTranslate").checked;
+  
+  if (translateOn) {
+    // Controleer of we al vertalingen hebben
+    const startIndex = pageNumber * SENTENCES_PER_PAGE;
+    const endIndex = Math.min(startIndex + SENTENCES_PER_PAGE, currentArticleData.sentences.length);
     
-    // Herrender de pagina met vertalingen
-    if (translations.length > 0) {
-      renderPage(pageNumber, translations);
+    if (currentArticleData.translations && 
+        currentArticleData.translations.slice(startIndex, endIndex).every(t => t && t !== "")) {
+      // Gebruik cached vertalingen
+      const cachedTranslations = currentArticleData.translations.slice(startIndex, endIndex);
+      updatePageWithTranslations(pageNumber, cachedTranslations);
+    } else {
+      // Laad nieuwe vertalingen
+      const translations = await loadTranslationsForPage(pageNumber);
+      
+      // Sla op in cache
+      if (!currentArticleData.translations) {
+        currentArticleData.translations = new Array(currentArticleData.sentences.length).fill("");
+      }
+      
+      translations.forEach((translation, index) => {
+        if (translation && translation !== "") {
+          currentArticleData.translations[startIndex + index] = translation;
+        }
+      });
+      
+      // Update de pagina
+      updatePageWithTranslations(pageNumber, translations);
     }
   }
 }
