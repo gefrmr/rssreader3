@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>RSS Reader – Fixed Translation Edition</title>
+<title>RSS Reader – Fast Translation</title>
 
 <style>
   body { font-family: Arial, sans-serif; margin: 0; padding: 0; background: #f5f5f5; }
@@ -58,15 +58,13 @@
 
   .translation-line.loading {
     color: #999;
-    font-style: normal;
+    background: linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%);
+    background-size: 200% 100%;
+    animation: loading 1.5s infinite;
+    width: 80%;
   }
 
-  .translation-line.error {
-    color: #cc0000;
-    font-style: normal;
-  }
-
-  .translation-line:hover:not(.loading):not(.error) {
+  .translation-line:hover:not(.loading) {
     background-color: #f0f0f0;
   }
 
@@ -85,23 +83,21 @@
     color: #8b0000 !important;
   }
 
-  /* Debug info */
-  .debug-panel {
-    background: #f8f9fa;
-    border: 1px solid #dee2e6;
-    border-radius: 6px;
-    padding: 10px;
+  /* Progress indicator */
+  .progress-container {
     margin: 10px 0;
-    font-size: 12px;
+    height: 4px;
+    background: #e0e0e0;
+    border-radius: 2px;
+    overflow: hidden;
     display: none;
   }
-
-  .debug-toggle {
-    font-size: 11px;
-    color: #666;
-    cursor: pointer;
-    user-select: none;
-    margin-left: 10px;
+  
+  .progress-bar {
+    height: 100%;
+    background: linear-gradient(90deg, #0078ff, #00aaff);
+    width: 0%;
+    transition: width 0.3s ease;
   }
 
   .toggle-row { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
@@ -136,6 +132,10 @@
   }
 
   @keyframes fadeIn { to { opacity: 1; } }
+  @keyframes loading {
+    0% { background-position: 200% 0; }
+    100% { background-position: -200% 0; }
+  }
 </style>
 </head>
 <body>
@@ -143,20 +143,8 @@
 <div class="container">
 
   <div class="nav-bar">
-    <div>
-      <strong>Reader</strong><span id="syncStatus"></span>
-      <span class="debug-toggle" onclick="toggleDebug()">🔍 Debug</span>
-    </div>
+    <div><strong>Reader</strong><span id="syncStatus"></span></div>
     <a href="woorden.html">Instellingen ⚙️</a>
-  </div>
-
-  <!-- DEBUG PANEL -->
-  <div id="debugPanel" class="debug-panel">
-    <strong>Debug Info:</strong>
-    <div id="debugInfo">Geen activiteit</div>
-    <button onclick="testTranslation()" style="margin-top: 5px; padding: 5px 10px; font-size: 11px;">
-      Test Translation API
-    </button>
   </div>
 
   <div class="toggle-row">
@@ -168,6 +156,11 @@
   <div class="toggle-row">
     <input type="checkbox" id="toggleGrammar" checked>
     <label for="toggleGrammar">Werkwoorden (vet) & zelfstandige naamwoorden (rood) markeren</label>
+  </div>
+
+  <!-- PROGRESS BAR -->
+  <div class="progress-container" id="progressContainer">
+    <div class="progress-bar" id="progressBarFill"></div>
   </div>
 
   <!-- AUDIO BUTTONS -->
@@ -190,193 +183,132 @@ let items = [];
 let currentIndex = 0;
 let currentArticleData = null;
 
-/* ========= DEBUG FUNCTIONS ========= */
-
-function updateDebugInfo(message) {
-  const debugInfo = document.getElementById('debugInfo');
-  const now = new Date().toLocaleTimeString();
-  debugInfo.innerHTML = `[${now}] ${message}<br>` + debugInfo.innerHTML;
-}
-
-function toggleDebug() {
-  const panel = document.getElementById('debugPanel');
-  panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
-}
-
-async function testTranslation() {
-  console.log('=== TESTING TRANSLATION API ===');
-  updateDebugInfo('Starting translation test...');
-  
-  const testSentences = [
-    "Hello, how are you?",
-    "The weather is beautiful today.",
-    "I am learning Portuguese."
-  ];
-  
-  try {
-    const url = `/api/translate?sentences=${encodeURIComponent(JSON.stringify(testSentences))}&target=pt-BR`;
-    updateDebugInfo(`Fetching: ${url.substring(0, 80)}...`);
-    
-    const response = await fetch(url);
-    updateDebugInfo(`Response status: ${response.status}`);
-    
-    const data = await response.json();
-    console.log('API Response:', data);
-    updateDebugInfo(`Got response with ${data.translations ? data.translations.length : 0} translations`);
-    
-    if (data.translations) {
-      data.translations.forEach((trans, i) => {
-        const isPortuguese = validatePortugueseTranslation(trans);
-        console.log(`Translation ${i + 1}: ${isPortuguese ? '✅ Portuguese' : '❌ NOT Portuguese'}`);
-        console.log(`  Original: "${testSentences[i]}"`);
-        console.log(`  Translation: "${trans}"`);
-        
-        updateDebugInfo(`Trans ${i + 1}: ${isPortuguese ? '✅' : '❌'} "${trans.substring(0, 50)}..."`);
-      });
-    }
-    
-  } catch (error) {
-    console.error('Test failed:', error);
-    updateDebugInfo(`Error: ${error.message}`);
-  }
-}
-
-/* ========= TRANSLATION VALIDATION ========= */
-
-function validatePortugueseTranslation(text) {
-  if (!text || typeof text !== 'string') return false;
-  
-  // Remove HTML tags for validation
-  const cleanText = text.replace(/<[^>]*>/g, '');
-  if (cleanText.length === 0) return false;
-  
-  // Check for Portuguese-specific characters
-  const portugueseChars = /[áàâãéèêíìîóòôõúùûçñ]/i;
-  const hasPortugueseChars = portugueseChars.test(cleanText);
-  
-  // Common Portuguese words that are unlikely in Dutch
-  const portugueseWords = [
-    'é', 'está', 'estão', 'foi', 'foram', 'tem', 'têm', 'há',
-    'que', 'como', 'para', 'com', 'não', 'sim', 'ou', 'e',
-    'o', 'a', 'os', 'as', 'um', 'uma', 'uns', 'umas',
-    'do', 'da', 'dos', 'das', 'no', 'na', 'nos', 'nas',
-    'meu', 'minha', 'teu', 'tua', 'seu', 'sua', 'nosso', 'nossa',
-    'você', 'vocês', 'nós', 'eles', 'elas'
-  ];
-  
-  const lowerText = cleanText.toLowerCase();
-  
-  // Check for Portuguese words
-  let portugueseWordCount = 0;
-  portugueseWords.forEach(word => {
-    if (new RegExp(`\\b${word}\\b`).test(lowerText)) {
-      portugueseWordCount++;
-    }
-  });
-  
-  // Check for Dutch words that shouldn't be in Portuguese
-  const dutchWords = ['de', 'het', 'een', 'en', 'van', 'ik', 'je', 'dat', 'niet', 'is', 'wat'];
-  let dutchWordCount = 0;
-  dutchWords.forEach(word => {
-    if (new RegExp(`\\b${word}\\b`).test(lowerText)) {
-      dutchWordCount++;
-    }
-  });
-  
-  // Debug info
-  console.log(`Validation: "${cleanText.substring(0, 50)}..."`);
-  console.log(`  Portuguese chars: ${hasPortugueseChars}`);
-  console.log(`  Portuguese words: ${portugueseWordCount}`);
-  console.log(`  Dutch words: ${dutchWordCount}`);
-  
-  // Validation logic
-  if (hasPortugueseChars) return true;
-  if (portugueseWordCount > 1) return true;
-  if (dutchWordCount > 2 && !hasPortugueseChars) return false;
-  
-  return false; // Default to not Portuguese
-}
-
 /* ========= OPTIMIZED BATCH TRANSLATION ========= */
 
 async function translateSentencesBatch(sentences, targetLang = "pt-BR") {
   if (sentences.length === 0) return [];
   
-  updateDebugInfo(`Translating batch of ${sentences.length} sentences`);
-  console.log(`[Translate] Batch: ${sentences.length} sentences`);
+  console.log(`🔍 Vertaal ${sentences.length} zinnen naar ${targetLang}`);
   
   try {
-    // Use the efficient batch API
     const url = `/api/translate?sentences=${encodeURIComponent(JSON.stringify(sentences))}&target=${targetLang}`;
-    
-    updateDebugInfo(`Calling API...`);
-    console.log(`[Translate] API URL: ${url.substring(0, 100)}...`);
+    console.log(`📤 API call: ${sentences.length} zinnen`);
     
     const response = await fetch(url);
     
     if (!response.ok) {
-      const errorText = await response.text();
-      console.error(`[Translate] API error ${response.status}:`, errorText);
-      updateDebugInfo(`API error ${response.status}`);
-      throw new Error(`API error: ${response.status}`);
+      console.error(`❌ API error: ${response.status}`);
+      return sentences;
     }
     
     const data = await response.json();
-    console.log('[Translate] API response:', data);
-    updateDebugInfo(`Got API response`);
+    console.log('📥 API response:', data);
     
+    // EXTRA DEBUG: Log de volledige response
+    console.log('🔍 Full API response structure:', JSON.stringify(data).substring(0, 500));
+    
+    // VERSCHILLENDE RESPONSE FORMATEN
     let translations = [];
+    
     if (data.translations && Array.isArray(data.translations)) {
       translations = data.translations;
-    } else if (Array.isArray(data)) {
+      console.log(`✅ Vertalingen gevonden: ${translations.length}`);
+    } 
+    else if (Array.isArray(data)) {
       translations = data;
-    } else {
-      console.warn('[Translate] Unexpected response format:', data);
-      updateDebugInfo('Unexpected response format');
-      // Fallback with error indication
-      return sentences.map(s => `<span class="error">[TRANSLATION ERROR] ${s}</span>`);
+      console.log(`✅ Direct array: ${translations.length} items`);
+    }
+    else if (data.text) {
+      translations = [data.text];
+      console.log(`✅ Single text: "${data.text.substring(0, 50)}..."`);
+    }
+    else {
+      console.error('❌ Onbekend response format:', data);
+      return sentences;
     }
     
-    // VALIDATE EACH TRANSLATION
-    const validatedTranslations = [];
-    let validCount = 0;
-    
-    for (let i = 0; i < translations.length; i++) {
-      const translation = translations[i];
-      const original = sentences[i];
+    // VALIDATIE
+    if (translations.length > 0) {
+      const firstTrans = translations[0] || '';
+      const firstOrig = sentences[0] || '';
       
-      const isPortuguese = validatePortugueseTranslation(translation);
-      const isSameAsOriginal = translation === original;
+      console.log(`🔍 Eerste origineel: "${firstOrig.substring(0, 50)}..."`);
+      console.log(`🔍 Eerste vertaling: "${firstTrans.substring(0, 50)}..."`);
       
-      console.log(`[Translate] Sentence ${i + 1}:`);
-      console.log(`  Original: "${original}"`);
-      console.log(`  Translation: "${translation}"`);
-      console.log(`  Is Portuguese: ${isPortuguese}`);
-      console.log(`  Same as original: ${isSameAsOriginal}`);
+      // Check of het Portugees is
+      const portugueseChars = firstTrans.match(/[áàâãéèêíìîóòôõúùûçñ]/gi);
+      console.log(`🔍 Portugese karakters gevonden: ${portugueseChars ? portugueseChars.length : 0}`);
       
-      if (!isPortuguese || isSameAsOriginal) {
-        // Translation failed
-        console.warn(`[Translate] Translation ${i + 1} failed validation`);
-        validatedTranslations.push(`<span class="error">[VERTALING MISLUKT] ${original}</span>`);
-        updateDebugInfo(`Translation ${i + 1} failed validation`);
-      } else {
-        validatedTranslations.push(translation);
-        validCount++;
+      if (firstTrans === firstOrig) {
+        console.warn('⚠️ WAARSCHUWING: Vertaling gelijk aan origineel!');
+        // Als het niet Portugees is, markeer het als mislukt
+        if (!portugueseChars || portugueseChars.length < 1) {
+          console.error('❌ Vertaling mislukt - geen Portugees gedetecteerd');
+          return sentences.map(s => `<span style="color: red">[Vertaling mislukt: ${s}]</span>`);
+        }
       }
     }
     
-    updateDebugInfo(`Validated: ${validCount}/${sentences.length} successful`);
-    console.log(`[Translate] Valid translations: ${validCount}/${sentences.length}`);
-    
-    return validatedTranslations;
+    return translations;
     
   } catch (error) {
-    console.error('[Translate] Error:', error);
-    updateDebugInfo(`Translation error: ${error.message}`);
-    
-    // Fallback with error indication
-    return sentences.map(s => `<span class="error">[API ERROR] ${s}</span>`);
+    console.error('❌ Vertaling mislukt:', error);
+    return sentences.map(s => `<span style="color: #999">[Vertaling tijdelijk niet beschikbaar]</span>`);
   }
+}
+
+/* ========= TRANSLATION CACHE ========= */
+const TRANSLATION_CACHE = new Map();
+
+function getCacheKey(sentences, targetLang) {
+  // Simple hash function for cache key
+  const text = sentences.join('|') + targetLang;
+  let hash = 0;
+  for (let i = 0; i < text.length; i++) {
+    const char = text.charCodeAt(i);
+    hash = ((hash << 5) - hash) + char;
+    hash = hash & hash;
+  }
+  return 'trans_' + Math.abs(hash);
+}
+
+async function translateWithCache(sentences, targetLang = "pt-BR") {
+  if (sentences.length === 0) return [];
+  
+  const cacheKey = getCacheKey(sentences, targetLang);
+  
+  // Check memory cache first
+  if (TRANSLATION_CACHE.has(cacheKey)) {
+    console.log(`[Cache] Memory hit for ${sentences.length} sentences`);
+    return TRANSLATION_CACHE.get(cacheKey);
+  }
+  
+  // Check localStorage
+  try {
+    const cached = localStorage.getItem(cacheKey);
+    if (cached) {
+      const parsed = JSON.parse(cached);
+      TRANSLATION_CACHE.set(cacheKey, parsed);
+      console.log(`[Cache] LocalStorage hit for ${sentences.length} sentences`);
+      return parsed;
+    }
+  } catch (e) {
+    console.log('[Cache] LocalStorage not available');
+  }
+  
+  // Get fresh translation
+  console.log(`[Cache] Miss - fetching ${sentences.length} sentences`);
+  const translations = await translateSentencesBatch(sentences, targetLang);
+  
+  // Cache the result
+  TRANSLATION_CACHE.set(cacheKey, translations);
+  try {
+    localStorage.setItem(cacheKey, JSON.stringify(translations));
+  } catch (e) {
+    // LocalStorage might be full, that's ok
+  }
+  
+  return translations;
 }
 
 /* ========= AUDIO ENGINE ========= */
@@ -418,17 +350,17 @@ function speakTranslation() {
   if (isSpeaking) return;
 
   const article = document.getElementById("article");
-  lines = [...article.querySelectorAll(".translation-line:not(.loading):not(.error)")].map(el => {
+  lines = [...article.querySelectorAll(".translation-line:not(.loading)")].map(el => {
     const temp = document.createElement('div');
     temp.innerHTML = el.innerHTML;
-    temp.querySelectorAll('strong, .noun, .error').forEach(tag => {
+    temp.querySelectorAll('strong, .noun').forEach(tag => {
       tag.replaceWith(tag.textContent);
     });
     return temp.textContent.trim();
-  }).filter(text => text.length > 0 && !text.startsWith('[VERTALING MISLUKT]') && !text.startsWith('[API ERROR]'));
+  }).filter(text => text.length > 0);
 
   if (lines.length === 0) {
-    alert("Geen geldige vertaalde zinnen om voor te lezen");
+    alert("Geen vertaalde zinnen om voor te lezen");
     return;
   }
 
@@ -456,7 +388,7 @@ function speakTranslation() {
     currentUtterance.onend = () => {
       if (!isPaused) {
         currentLineIndex++;
-        speakNext();
+        setTimeout(speakNext, 300);
       }
     };
 
@@ -489,7 +421,7 @@ function playSingleLine(i) {
   stopSpeaking();
   const voice = getBrazilianVoice();
   const el = document.querySelector(`.translation-line[data-index="${i}"]`);
-  if (!el || el.classList.contains('loading') || el.classList.contains('error')) return;
+  if (!el || el.classList.contains('loading')) return;
 
   document.querySelectorAll(".translation-line").forEach(x => x.classList.remove("active-line"));
   el.classList.add("active-line");
@@ -511,7 +443,7 @@ function playSingleLine(i) {
   speechSynthesis.speak(u);
 }
 
-/* ========= ARTICLE PROCESSING ========= */
+/* ========= SENTENCE PROCESSING ========= */
 
 function splitIntoSentences(text) {
   return text
@@ -521,80 +453,104 @@ function splitIntoSentences(text) {
     .filter(s => s.trim().length > 0);
 }
 
+function updateProgressBar(percent, message = "") {
+  const container = document.getElementById("progressContainer");
+  const bar = document.getElementById("progressBarFill");
+  
+  if (percent <= 0 || percent >= 100) {
+    container.style.display = "none";
+  } else {
+    container.style.display = "block";
+    bar.style.width = `${percent}%`;
+  }
+}
+
 async function translateArticleContent(html, targetLang = "pt-BR") {
   const temp = document.createElement("div");
   temp.innerHTML = html;
   
+  // Extract all text content
   const text = temp.textContent || temp.innerText || "";
   const sentences = splitIntoSentences(text);
   
   if (sentences.length === 0) {
-    return '<p>Geen tekst gevonden in artikel.</p>';
+    return html;
   }
   
-  updateDebugInfo(`Processing article with ${sentences.length} sentences`);
+  console.log(`[Process] Found ${sentences.length} sentences`);
   
-  // Process in optimal batches
-  const BATCH_SIZE = 10;
+  // OPTIMIZATION: Process in optimal batches
+  const OPTIMAL_BATCH_SIZE = 12; // Best balance for speed
   const allTranslations = [];
   
-  for (let i = 0; i < sentences.length; i += BATCH_SIZE) {
-    const batch = sentences.slice(i, Math.min(i + BATCH_SIZE, sentences.length));
-    updateDebugInfo(`Translating batch ${Math.floor(i/BATCH_SIZE) + 1} (${batch.length} sentences)`);
+  // Process in parallel batches for maximum speed
+  const batchPromises = [];
+  let completedBatches = 0;
+  
+  for (let i = 0; i < sentences.length; i += OPTIMAL_BATCH_SIZE) {
+    const batch = sentences.slice(i, Math.min(i + OPTIMAL_BATCH_SIZE, sentences.length));
     
-    const translations = await translateSentencesBatch(batch, targetLang);
-    allTranslations.push(...translations);
+    batchPromises.push(
+      translateWithCache(batch, targetLang).then(translations => {
+        completedBatches++;
+        
+        // Update progress
+        const progress = Math.round((completedBatches / Math.ceil(sentences.length / OPTIMAL_BATCH_SIZE)) * 100);
+        updateProgressBar(progress, `Batch ${completedBatches}`);
+        
+        return { startIdx: i, translations };
+      })
+    );
   }
   
-  // Build the HTML
+  // Show progress bar
+  updateProgressBar(10, "Start vertaling...");
+  
+  // Wait for all batches
+  const batchResults = await Promise.all(batchPromises);
+  
+  // Combine results in correct order
+  batchResults.sort((a, b) => a.startIdx - b.startIdx);
+  batchResults.forEach(result => {
+    allTranslations.push(...result.translations);
+  });
+  
+  // Hide progress bar
+  updateProgressBar(100);
+  setTimeout(() => updateProgressBar(0), 500);
+  
+  // Build the HTML with translations
   let outputHTML = '';
   const grammarEnabled = document.getElementById("toggleGrammar").checked;
   
   sentences.forEach((sentence, index) => {
     let translationHTML = allTranslations[index] || "";
     
-    // Check if translation failed
-    const isError = translationHTML.includes('class="error"') || 
-                    translationHTML.includes('[VERTALING MISLUKT]') ||
-                    translationHTML.includes('[API ERROR]');
-    
-    if (isError) {
-      outputHTML += `
-        <div class="translation-group">
-          <span class="translation-original">${sentence}</span>
-          <br>
-          <span class="translation-line error" data-index="${index}">
-            ${translationHTML}
-          </span>
-        </div>
-      `;
-    } else {
-      // Apply grammar markup if enabled
-      if (grammarEnabled && translationHTML) {
-        translationHTML = translationHTML
-          .replace(/<span style="color:darkred">/g, '<span class="noun">')
-          .replace(/<span style="color: darkred">/g, '<span class="noun">');
-      } else if (!grammarEnabled && translationHTML) {
-        translationHTML = translationHTML
-          .replace(/<strong>/g, '')
-          .replace(/<\/strong>/g, '')
-          .replace(/<span[^>]*>/g, '')
-          .replace(/<\/span>/g, '');
-      }
-      
-      outputHTML += `
-        <div class="translation-group">
-          <span class="translation-original">${sentence}</span>
-          <br>
-          <span class="translation-line" data-index="${index}" onclick="playSingleLine(${index})">
-            ${translationHTML || '<em>Geen vertaling beschikbaar</em>'}
-          </span>
-        </div>
-      `;
+    // Apply grammar markup if enabled
+    if (grammarEnabled && translationHTML) {
+      translationHTML = translationHTML
+        .replace(/<span style="color:darkred">/g, '<span class="noun">')
+        .replace(/<span style="color: darkred">/g, '<span class="noun">');
+    } else if (!grammarEnabled && translationHTML) {
+      // Remove markup if grammar disabled
+      translationHTML = translationHTML
+        .replace(/<strong>/g, '')
+        .replace(/<\/strong>/g, '')
+        .replace(/<span[^>]*>/g, '')
+        .replace(/<\/span>/g, '');
     }
+    
+    outputHTML += `
+      <div class="translation-group">
+        <span class="translation-original">${sentence}</span>
+        <br>
+        <span class="translation-line" data-index="${index}" onclick="playSingleLine(${index})">
+          ${translationHTML || '<em style="color: #666">Vertaling laden...</em>'}
+        </span>
+      </div>
+    `;
   });
   
-  updateDebugInfo(`Article translation completed`);
   return outputHTML;
 }
 
@@ -635,7 +591,7 @@ function applyHighlights(html, words) {
     .sort((a, b) => b.length - a.length)
     .map(w => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
     .join("|");
-  const regex = new RegExp(`\\b(${pattern})\b(?=[^>]*<)`, "gi");
+  const regex = new RegExp(`\\b(${pattern})\\b(?=[^>]*<)`, "gi");
   return html.replace(regex, m => `<mark class="custom-highlight">${m}</mark>`);
 }
 
@@ -704,10 +660,42 @@ async function loadArticle(index) {
       translateOn ? "flex" : "none";
 
     if (translateOn) {
+      // Show loading state for translations
+      const temp = document.createElement("div");
+      temp.innerHTML = html;
+      const text = temp.textContent || temp.innerText || "";
+      const sentences = splitIntoSentences(text);
+      
+      // Show skeleton while translating
+      let skeletonHTML = `<h2>${applyHighlights(title, words)}</h2>`;
+      sentences.forEach((sentence, idx) => {
+        skeletonHTML += `
+          <div class="translation-group">
+            <span class="translation-original">${sentence}</span>
+            <br>
+            <span class="translation-line loading" data-index="${idx}"></span>
+          </div>
+        `;
+      });
+      
+      container.innerHTML = skeletonHTML;
+      requestAnimationFrame(() => container.style.opacity = 1);
+      
+      // Now do the translation
       html = await translateArticleContent(html, "pt-BR");
+      
+      // Update with real translations
+      container.innerHTML = `
+        <h2>${applyHighlights(title, words)}</h2>
+        ${html}
+      `;
+      
     } else {
       // Just show original content without translation
-      const sentences = splitIntoSentences(html.replace(/<[^>]*>/g, ' '));
+      const temp = document.createElement("div");
+      temp.innerHTML = html;
+      const text = temp.textContent || temp.innerText || "";
+      const sentences = splitIntoSentences(text);
       
       html = sentences.map(sentence => `
         <div class="translation-group">
@@ -716,19 +704,19 @@ async function loadArticle(index) {
           <span class="translation-line"><em>Vertaling uitgeschakeld</em></span>
         </div>
       `).join('');
+      
+      container.innerHTML = `
+        <h2>${applyHighlights(title, words)}</h2>
+        ${html}
+      `;
+      
+      requestAnimationFrame(() => container.style.opacity = 1);
     }
-
-    container.innerHTML = `
-      <h2>${applyHighlights(title, words)}</h2>
-      ${html}
-    `;
-
-    requestAnimationFrame(() => container.style.opacity = 1);
 
   } catch (error) {
     console.error("Fout bij laden artikel:", error);
     container.innerHTML = "Fout bij laden van artikel.";
-    updateDebugInfo(`Error loading article: ${error.message}`);
+    updateProgressBar(0);
   }
 }
 
@@ -765,21 +753,46 @@ document.getElementById("carousel").addEventListener("click", (e) => {
 
 document.getElementById("toggleGrammar").addEventListener("change", function() {
   if (currentArticleData) {
+    // Reload current article with new grammar setting
     loadArticle(currentIndex);
   }
 });
 
 document.getElementById("toggleTranslate").addEventListener("change", function() {
   if (items.length > 0) {
+    // Reload current article
     loadArticle(currentIndex);
   }
 });
+
+/* ========= DEBUG FUNCTIONS ========= */
+
+window.debugTranslation = async function() {
+  console.log("=== TRANSLATION DEBUG ===");
+  
+  const testSentences = [
+    "The weather is nice today.",
+    "I want to learn Portuguese.",
+    "This is a simple test."
+  ];
+  
+  console.log("Testing with:", testSentences);
+  
+  const result = await translateSentencesBatch(testSentences, "pt-BR");
+  console.log("Result:", result);
+  
+  // Check if Portuguese
+  if (result[0]) {
+    const hasPortuguese = /[áàâãéèêíìîóòôõúùûçñ]/i.test(result[0]);
+    console.log("Has Portuguese characters?", hasPortuguese);
+    console.log("Sample:", result[0]);
+  }
+};
 
 /* ========= INIT ========= */
 
 async function init() {
   console.log("Reader initialiseren...");
-  updateDebugInfo("Initializing reader...");
   await startSync();
   loadSavedFeeds();
 
