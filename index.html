@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>RSS Reader – Cloud Sync Edition</title>
+<title>RSS Reader – Paginated Edition</title>
 
 <style>
   body { font-family: Arial, sans-serif; margin: 0; padding: 0; background: #f5f5f5; }
@@ -29,7 +29,7 @@
 
   .article { background: white; padding: 20px; margin-top: 12px; border-radius: 12px;
              line-height: 1.25; font-size: 15px; opacity: 0; animation: fadeIn 0.4s forwards; }
-  .article h2 { font-size: 18px; margin-top: 0; line-height: 1.2; }
+  .article h2 { font-size: 18px; margin-top: 0; line-height: 1.2; margin-bottom: 20px; }
 
   .translation-group {
     margin-bottom: 12px;
@@ -65,19 +65,48 @@
     text-decoration-thickness: 2px;
   }
 
-  /* Grammatica markering - AANGEPAST */
+  /* Grammatica markering */
   .translation-line strong {
     font-weight: bold !important;
-    /* Geen gele achtergrond meer */
-    background-color: transparent;
-    padding: 0;
   }
 
   .translation-line .noun {
-    color: #8b0000 !important; /* Donkerrood */
-    font-weight: normal; /* Geen extra vet */
-    /* Geen onderstreping */
-    text-decoration: none;
+    color: #8b0000 !important;
+  }
+
+  /* Paginering controls */
+  .pagination-controls {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-top: 20px;
+    padding-top: 15px;
+    border-top: 1px solid #e0e0e0;
+  }
+
+  .pagination-btn {
+    padding: 10px 20px;
+    background: #0078ff;
+    color: white;
+    border: none;
+    border-radius: 6px;
+    font-size: 14px;
+    font-weight: bold;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .pagination-btn:disabled {
+    background: #cccccc;
+    cursor: not-allowed;
+  }
+
+  .pagination-info {
+    font-size: 14px;
+    color: #666;
+    font-weight: bold;
   }
 
   .toggle-row { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
@@ -157,13 +186,23 @@
 
   <select id="feedSelect" onchange="loadSelectedFeed()"></select>
   <div id="carousel" class="carousel"></div>
-  <div id="article" class="article"></div>
+  
+  <!-- ARTICLE CONTAINER MET PAGINERING -->
+  <div id="article" class="article">
+    <!-- Artikel wordt hier ingeladen met paginering -->
+  </div>
 
 </div>
 
 <script>
 let items = [];
 let currentIndex = 0;
+
+/* ========= PAGINERING GLOBALE VARIABELEN ========= */
+let currentArticleData = null;
+let currentPage = 0;
+const SENTENCES_PER_PAGE = 10;
+let totalPages = 0;
 
 /* ========= AUDIO ENGINE ========= */
 
@@ -209,11 +248,9 @@ function speakTranslation() {
   if (isSpeaking) return;
 
   const article = document.getElementById("article");
-  // Verwijder HTML markup voor spraak
   lines = [...article.querySelectorAll(".translation-line")].map(el => {
     const temp = document.createElement('div');
     temp.innerHTML = el.innerHTML;
-    // Verwijder span en strong tags
     temp.querySelectorAll('strong, .noun').forEach(tag => {
       tag.replaceWith(tag.textContent);
     });
@@ -284,7 +321,6 @@ function playSingleLine(i) {
   document.querySelectorAll(".translation-line").forEach(x => x.classList.remove("active-line"));
   el.classList.add("active-line");
 
-  // Verwijder markup voor spraak
   const temp = document.createElement('div');
   temp.innerHTML = el.innerHTML;
   temp.querySelectorAll('strong, .noun').forEach(tag => {
@@ -316,19 +352,16 @@ function nextLine() {
   playSingleLine(currentLineIndex);
 }
 
-/* ========= BATCH VERTALING MET GRAMMATICA ========= */
+/* ========= BATCH VERTALING MET PAGINERING ========= */
 
 async function translateSentencesBatch(sentences, targetLang = "pt-BR") {
   try {
     const url = `/api/translate?sentences=${JSON.stringify(sentences)}&target=${targetLang}`;
     const resp = await fetch(url);
     const data = await resp.json();
-    
-    // Het nieuwe formaat geeft HTML met markup direct terug
     return Array.isArray(data.translations) ? data.translations : [];
   } catch (error) {
     console.error('Vertalingsfout:', error);
-    // Fallback: geef gewone zinnen terug zonder markup
     return sentences;
   }
 }
@@ -341,114 +374,136 @@ function splitIntoSentences(text) {
     .filter(s => s.trim().length > 0);
 }
 
-async function translateArticleContent(html, targetLang = "pt-BR") {
-  const temp = document.createElement("div");
-  temp.innerHTML = html;
+async function processSentencesForPage(sentences, targetLang = "pt-BR") {
+  if (sentences.length === 0) return [];
   
-  const walker = document.createTreeWalker(temp, NodeFilter.SHOW_TEXT, null);
-  const textNodes = [];
-  while (walker.nextNode()) {
-    textNodes.push(walker.currentNode);
-  }
-  
-  let allSentences = [];
-  const nodeToSentencesMap = new Map();
-  
-  textNodes.forEach(node => {
-    if (node.textContent.trim()) {
-      const sentences = splitIntoSentences(node.textContent);
-      if (sentences.length > 0) {
-        nodeToSentencesMap.set(node, sentences);
-        allSentences = allSentences.concat(sentences);
-      }
-    }
-  });
-  
-  if (allSentences.length === 0) return html;
-  
-  // Vertaal in batches
-  const chunkSize = Math.min(15, allSentences.length); // Kleinere batches voor betere AI analyse
-  const chunks = [];
-  for (let i = 0; i < allSentences.length; i += chunkSize) {
-    chunks.push(allSentences.slice(i, i + chunkSize));
-  }
-  
-  const results = await Promise.all(
-    chunks.map(chunk => translateSentencesBatch(chunk, targetLang))
-  );
-  
-  const translations = results.flat();
-  
-  // Controleer of grammaticamarkering is ingeschakeld
   const grammarEnabled = document.getElementById("toggleGrammar").checked;
+  const translateOn = document.getElementById("toggleTranslate").checked;
   
-  let translationIndex = 0;
-  textNodes.forEach(node => {
-    const sentences = nodeToSentencesMap.get(node);
-    if (sentences && sentences.length > 0) {
-      const parent = node.parentNode;
-      const fragment = document.createDocumentFragment();
-      
-      sentences.forEach((sentence, i) => {
-        const groupDiv = document.createElement("div");
-        groupDiv.className = "translation-group";
-        
-        const originalSpan = document.createElement("span");
-        originalSpan.className = "translation-original";
-        originalSpan.textContent = sentence;
-        
-        const translationSpan = document.createElement("span");
-        translationSpan.className = "translation-line";
-        translationSpan.dataset.index = translationIndex;
-        
-        let translationHTML = translations[translationIndex] || "";
-        
-        // Als grammaticamarkering is uitgeschakeld, verwijder de markup
-        if (!grammarEnabled) {
-          const tempDiv = document.createElement('div');
-          tempDiv.innerHTML = translationHTML;
-          // Verwijder strong tags (werkwoorden)
-          tempDiv.querySelectorAll('strong').forEach(strong => {
-            strong.replaceWith(strong.textContent);
-          });
-          // Verwijder span tags voor zelfstandige naamwoorden
-          tempDiv.querySelectorAll('span').forEach(span => {
-            if (span.style.color === 'darkred' || span.classList.contains('noun')) {
-              span.replaceWith(span.textContent);
-            }
-          });
-          translationHTML = tempDiv.innerHTML;
-        } else {
-          // Converteer darkred spans naar .noun klasse voor consistente styling
-          translationHTML = translationHTML.replace(/<span style="color:darkred">/g, '<span class="noun">');
-          translationHTML = translationHTML.replace(/<span style="color: darkred">/g, '<span class="noun">');
-          
-          // Zorg dat strong tags geen achtergrondkleur hebben
-          const tempDiv = document.createElement('div');
-          tempDiv.innerHTML = translationHTML;
-          tempDiv.querySelectorAll('strong').forEach(strong => {
-            strong.style.backgroundColor = 'transparent';
-            strong.style.padding = '0';
-          });
-          translationHTML = tempDiv.innerHTML;
-        }
-        
-        translationSpan.innerHTML = translationHTML;
-        translationSpan.onclick = () => playSingleLine(translationIndex);
-        
-        groupDiv.appendChild(originalSpan);
-        groupDiv.appendChild(document.createElement("br"));
-        groupDiv.appendChild(translationSpan);
-        
-        fragment.appendChild(groupDiv);
-        translationIndex++;
-      });
-      
-      parent.replaceChild(fragment, node);
-    }
+  if (!translateOn) {
+    return sentences; // Geen vertaling nodig
+  }
+  
+  // Vertaal deze batch van maximaal 10 zinnen
+  const translations = await translateSentencesBatch(sentences, targetLang);
+  
+  // Pas grammaticamarkering toe indien ingeschakeld
+  if (grammarEnabled && translations.length > 0) {
+    return translations.map(translation => {
+      let html = translation || "";
+      // Converteer darkred spans naar .noun klasse
+      html = html.replace(/<span style="color:darkred">/g, '<span class="noun">');
+      html = html.replace(/<span style="color: darkred">/g, '<span class="noun">');
+      return html;
+    });
+  }
+  
+  return translations;
+}
+
+/* ========= PAGINERING FUNCTIES ========= */
+
+function renderPage(pageNumber) {
+  if (!currentArticleData || !currentArticleData.sentences) {
+    return;
+  }
+  
+  const container = document.getElementById("article");
+  const sentences = currentArticleData.sentences;
+  const title = currentArticleData.title || "";
+  const words = currentArticleData.highlightWords || [];
+  
+  // Bereken welke zinnen voor deze pagina
+  const startIndex = pageNumber * SENTENCES_PER_PAGE;
+  const endIndex = Math.min(startIndex + SENTENCES_PER_PAGE, sentences.length);
+  const pageSentences = sentences.slice(startIndex, endIndex);
+  
+  // Bereken vertalingen voor deze pagina (als die er zijn)
+  const pageTranslations = currentArticleData.translations ? 
+    currentArticleData.translations.slice(startIndex, endIndex) : 
+    new Array(pageSentences.length).fill("");
+  
+  // Bouw HTML voor deze pagina
+  let html = `<h2>${applyHighlights(title, words)}</h2>`;
+  
+  pageSentences.forEach((sentence, index) => {
+    const globalIndex = startIndex + index;
+    const translationHTML = pageTranslations[index] || "";
+    
+    html += `
+      <div class="translation-group">
+        <span class="translation-original">${applyHighlights(sentence, words)}</span>
+        <br>
+        <span class="translation-line" data-index="${index}" onclick="playSingleLine(${index})">
+          ${translationHTML}
+        </span>
+      </div>
+    `;
   });
   
-  return temp.innerHTML;
+  // Voeg paginering controls toe
+  html += `
+    <div class="pagination-controls">
+      <button class="pagination-btn" onclick="goToPage(${pageNumber - 1})" ${pageNumber === 0 ? 'disabled' : ''}>
+        ← Vorige
+      </button>
+      <span class="pagination-info">
+        Pagina ${pageNumber + 1} van ${totalPages} 
+        (zinnen ${startIndex + 1}-${endIndex} van ${sentences.length})
+      </span>
+      <button class="pagination-btn" onclick="goToPage(${pageNumber + 1})" ${pageNumber >= totalPages - 1 ? 'disabled' : ''}>
+        Volgende →
+      </button>
+    </div>
+  `;
+  
+  container.innerHTML = html;
+  container.style.opacity = 1;
+  
+  // Update audio controls
+  const translateOn = document.getElementById("toggleTranslate").checked;
+  document.getElementById("audioControls").style.display =
+  document.getElementById("audioNav").style.display =
+  document.getElementById("speedControl").style.display =
+    translateOn ? "flex" : "none";
+  
+  currentPage = pageNumber;
+}
+
+async function goToPage(pageNumber) {
+  if (pageNumber < 0 || pageNumber >= totalPages) {
+    return;
+  }
+  
+  stopSpeaking();
+  
+  // Als we naar een nieuwe pagina gaan, laden we de vertalingen voor die pagina
+  if (currentArticleData && currentArticleData.sentences) {
+    const startIndex = pageNumber * SENTENCES_PER_PAGE;
+    const endIndex = Math.min(startIndex + SENTENCES_PER_PAGE, currentArticleData.sentences.length);
+    const pageSentences = currentArticleData.sentences.slice(startIndex, endIndex);
+    
+    // Alleen vertalen als er nog geen vertalingen zijn
+    if (!currentArticleData.translations || 
+        currentArticleData.translations.slice(startIndex, endIndex).some(t => !t || t === "")) {
+      
+      // Toon laadindicator
+      document.getElementById("article").innerHTML = "Pagina laden...";
+      
+      const translations = await processSentencesForPage(pageSentences, "pt-BR");
+      
+      // Sla vertalingen op
+      if (!currentArticleData.translations) {
+        currentArticleData.translations = new Array(currentArticleData.sentences.length).fill("");
+      }
+      
+      translations.forEach((translation, index) => {
+        currentArticleData.translations[startIndex + index] = translation;
+      });
+    }
+  }
+  
+  renderPage(pageNumber);
 }
 
 /* ========= CLOUD SYNC + RSS ========= */
@@ -517,9 +572,7 @@ async function loadFeed(url) {
       }"></div>`)
       .join("");
     
-    // Wacht even zodat de slides geladen zijn voordat we scroll event listener activeren
     setTimeout(() => {
-      // Alleen eerste artikel laden als er nog niet gescrolled is
       if (carousel.scrollLeft === 0) {
         loadArticle(0);
       }
@@ -536,10 +589,11 @@ function loadSelectedFeed() {
 
 async function loadArticle(index) {
   stopSpeaking();
+  currentPage = 0; // Reset naar eerste pagina
 
   const container = document.getElementById("article");
   container.style.opacity = 0;
-  container.innerHTML = "Laden...";
+  container.innerHTML = "Artikel laden...";
   currentIndex = index;
 
   try {
@@ -550,29 +604,32 @@ async function loadArticle(index) {
     const data = await resp.json();
     const words = JSON.parse(localStorage.getItem("highlightWords") || "[]");
 
-    let html = data.content;
+    const html = data.content;
     const title = data.title || "";
 
-    const translateOn = document.getElementById("toggleTranslate").checked;
+    // Split de tekst in zinnen
+    const temp = document.createElement("div");
+    temp.innerHTML = html;
+    const text = temp.textContent || temp.innerText || "";
+    
+    const sentences = splitIntoSentences(text);
+    
+    // Bereken totaal aantal pagina's
+    totalPages = Math.ceil(sentences.length / SENTENCES_PER_PAGE);
+    
+    // Sla artikeldata op voor paginering
+    currentArticleData = {
+      title: title,
+      sentences: sentences,
+      highlightWords: words,
+      translations: [] // Wordt per pagina ingevuld
+    };
 
-    document.getElementById("audioControls").style.display =
-    document.getElementById("audioNav").style.display =
-    document.getElementById("speedControl").style.display =
-      translateOn ? "flex" : "none";
-
-    if (translateOn) {
-      html = await translateArticleContent(html, "pt-BR");
-    }
-
-    container.innerHTML = `
-      <h2>${applyHighlights(title, words)}</h2>
-      ${applyHighlights(html, words)}
-    `;
-
-    requestAnimationFrame(() => container.style.opacity = 1);
+    // Laad eerste pagina
+    await goToPage(0);
 
   } catch {
-    container.innerHTML = "Fout.";
+    container.innerHTML = "Fout bij laden van artikel.";
   }
 }
 
@@ -590,18 +647,15 @@ document.getElementById("carousel").onscroll = () => {
     if (index !== currentIndex && items[index]) {
       loadArticle(index);
     }
-  }, 50); // Kortere timeout voor snellere respons
+  }, 50);
 };
 
-// Directe klik op slides (optioneel, voor betere UX)
 document.getElementById("carousel").addEventListener("click", (e) => {
   const slide = e.target.closest(".slide");
   if (slide) {
     const index = parseInt(slide.dataset.index);
     if (!isNaN(index) && index !== currentIndex && items[index]) {
-      // Scroll naar de geselecteerde slide
       slide.scrollIntoView({ behavior: 'smooth', inline: 'center' });
-      // Laad het artikel
       loadArticle(index);
     }
   }
@@ -610,9 +664,18 @@ document.getElementById("carousel").addEventListener("click", (e) => {
 /* ========= GRAMMATICA TOGGLE ========= */
 
 document.getElementById("toggleGrammar").addEventListener("change", function() {
-  if (items.length > 0 && document.getElementById("toggleTranslate").checked) {
-    // Herlaad het huidige artikel om de grammaticamarkering te updaten
-    loadArticle(currentIndex);
+  if (currentArticleData && currentArticleData.sentences) {
+    // Reset vertalingen en herlaad huidige pagina
+    currentArticleData.translations = [];
+    goToPage(currentPage);
+  }
+});
+
+document.getElementById("toggleTranslate").addEventListener("change", function() {
+  if (currentArticleData && currentArticleData.sentences) {
+    // Reset vertalingen en herlaad huidige pagina
+    currentArticleData.translations = [];
+    goToPage(currentPage);
   }
 });
 
