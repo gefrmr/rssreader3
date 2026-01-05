@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Instellingen – RSS Reader</title>
+<style>
+  body { font-family: Arial, sans-serif; margin: 0; padding: 0; background: #f5f5f5; color: #333; }
+  .container { max-width: 700px; margin: auto; padding: 12px; }
+  .nav-bar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; padding: 10px 0; border-bottom: 1px solid #ddd; }
+  .nav-bar a { text-decoration: none; color: #0078ff; font-weight: bold; }
+  .card { background: white; border-radius: 10px; padding: 16px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); margin-bottom: 16px; }
+  h2 { font-size: 1.1rem; margin-top: 0; }
+  .toolbar { display: flex; flex-direction: column; gap: 8px; }
+  input { padding: 10px; border-radius: 6px; border: 1px solid #ccc; font-size: 14px; }
+  .btn { padding: 10px; cursor: pointer; border: none; font-weight: bold; color: white; background: #0078ff; border-radius: 6px; }
+  .btn-sync { background: #28a745; }
+  .label { font-size: 12px; font-weight: bold; color: #666; margin-top: 5px; }
+  .hint { font-size: 11px; color: #888; }
+</style>
+</head>
+<body>
+<div class="container">
+  <div class="nav-bar">
+    <a href="index.html">← Terug naar Reader</a>
+    <span>Cloud Sync Instellingen</span>
+  </div>
+
+  <div class="card">
+    <h2>Cloud Synchronisatie & Vertaling</h2>
+    <p style="font-size: 13px;">Publiceer je Google Sheets tabbladen als CSV en plak de links hieronder. Optioneel kun je een Gemini API key toevoegen voor vertaling.</p>
+    <div class="toolbar">
+      <div class="label">Google Sheet CSV URL - Woorden/Chunks:</div>
+      <input id="syncSheetUrl" type="text" placeholder="https://docs.google.com/spreadsheets/...pub?gid=0&output=csv">
+      
+      <div class="label">Google Sheet CSV URL - RSS Feeds:</div>
+      <input id="syncFeedUrl" type="text" placeholder="https://docs.google.com/spreadsheets/...pub?gid=123&output=csv">
+
+      <div class="label">Gemini API Key (voor vertaling):</div>
+      <input id="geminiKey" type="text" placeholder="AIza...">
+      <span class="hint">Laat leeg als je geen vertaling wil gebruiken. De key wordt lokaal in je browser opgeslagen.</span>
+      
+      <button class="btn btn-sync" onclick="saveAndSync()">Instellingen Opslaan 🔄</button>
+    </div>
+  </div>
+  
+  <p style="font-size: 12px; color: #888; text-align: center;">De Reader zal bij elke start de lijsten automatisch verversen. Vertaling wordt alleen geactiveerd als een Gemini API key is ingesteld.</p>
+</div>
+
+<script>
+  document.addEventListener('DOMContentLoaded', () => {
+    document.getElementById("syncSheetUrl").value = localStorage.getItem("syncSheetUrl") || "";
+    document.getElementById("syncFeedUrl").value = localStorage.getItem("syncFeedUrl") || "";
+    document.getElementById("geminiKey").value = localStorage.getItem("geminiKey") || "";
+  });
+
+  function saveAndSync() {
+    const sUrl = document.getElementById("syncSheetUrl").value.trim();
+    const fUrl = document.getElementById("syncFeedUrl").value.trim();
+    const gKey = document.getElementById("geminiKey").value.trim();
+    
+    localStorage.setItem("syncSheetUrl", sUrl);
+    localStorage.setItem("syncFeedUrl", fUrl);
+    localStorage.setItem("geminiKey", gKey);
+    
+    alert("Instellingen opgeslagen. Ga terug naar de Reader om de synchronisatie en vertaling te gebruiken.");
+  }
+</script>
+</body>
+</html>

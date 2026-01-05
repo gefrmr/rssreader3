@@ -1,0 +1,553 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>RSS Reader – Cloud Sync Edition</title>
+
+<style>
+  body { font-family: Arial, sans-serif; margin: 0; padding: 0; background: #f5f5f5; }
+  .container { max-width: 700px; margin: auto; padding: 12px; }
+
+  .nav-bar { display: flex; justify-content: space-between; align-items: center;
+             margin-bottom: 12px; padding: 4px 0; border-bottom: 1px solid #ddd; }
+  .nav-bar a { text-decoration: none; color: #0078ff; font-size: 14px; font-weight: bold; }
+  #syncStatus { font-size: 10px; color: #888; margin-left: 8px; }
+
+  mark.custom-highlight { background-color: #ffeb3b; color: #000; padding: 0 1px; border-radius: 2px; }
+
+  select { width: 100%; padding: 10px; border-radius: 6px; border: 1px solid #ccc;
+           font-size: 14px; background: white; margin-bottom: 10px; }
+
+  .carousel { display: flex; overflow-x: scroll; scroll-snap-type: x mandatory; gap: 10px;
+              padding: 10px 0; -webkit-overflow-scrolling: touch; }
+  .slide { min-width: 75%; background: white; padding: 6px; border-radius: 10px;
+           scroll-snap-align: center; box-shadow: 0 1px 4px rgba(0,0,0,0.15);
+           height: 120px; display: flex; align-items: center; justify-content: center;
+           cursor: pointer; }
+  .slide img { width: 100%; height: 100%; object-fit: cover; border-radius: 8px; }
+
+  .article { background: white; padding: 20px; margin-top: 12px; border-radius: 12px;
+             line-height: 1.25; font-size: 15px; opacity: 0; animation: fadeIn 0.4s forwards; }
+  .article h2 { font-size: 18px; margin-top: 0; line-height: 1.2; }
+
+  .translation-group {
+    margin-bottom: 12px;
+    border-left: 2px solid #e0e0e0;
+    padding-left: 8px;
+  }
+
+  .translation-original {
+    display: block;
+    margin-bottom: 2px;
+    line-height: 1.4;
+  }
+
+  .translation-line {
+    display: block;
+    color: #003399;
+    font-style: italic;
+    margin-left: 10px;
+    margin-bottom: 8px;
+    line-height: 1.4;
+    cursor: pointer;
+    padding: 2px 4px;
+    border-radius: 3px;
+  }
+
+  .translation-line:hover {
+    background-color: #f0f0f0;
+  }
+
+  .translation-line.active-line {
+    background-color: #e3f2fd;
+    text-decoration: underline;
+    text-decoration-thickness: 2px;
+  }
+
+  .toggle-row { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+
+  .audio-controls {
+    display: none;
+    gap: 12px;
+    margin-bottom: 12px;
+    flex-wrap: wrap;
+  }
+
+  .audio-btn {
+    flex: 1;
+    padding: 12px;
+    font-size: 16px;
+    border: none;
+    border-radius: 8px;
+    background: #0078ff;
+    color: white;
+    font-weight: bold;
+    text-align: center;
+  }
+
+  .audio-btn.stop { background: #cc0000; }
+  .audio-btn.pause { background: #ffaa00; }
+
+  #progressBar {
+    font-size: 13px;
+    color: #444;
+    margin-bottom: 8px;
+    display: none;
+  }
+
+  @keyframes fadeIn { to { opacity: 1; } }
+</style>
+</head>
+<body>
+
+<div class="container">
+
+  <div class="nav-bar">
+    <div><strong>Reader</strong><span id="syncStatus"></span></div>
+    <a href="woorden.html">Instellingen ⚙️</a>
+  </div>
+
+  <div class="toggle-row">
+    <input type="checkbox" id="toggleTranslate" checked>
+    <label for="toggleTranslate">Vertaling inschakelen</label>
+  </div>
+
+  <!-- NAVIGATION BUTTONS -->
+  <div id="audioNav" class="audio-controls">
+    <button class="audio-btn" onclick="prevLine()">⏮️</button>
+    <button class="audio-btn" onclick="nextLine()">⏭️</button>
+  </div>
+
+  <!-- SPEED SLIDER -->
+  <div id="speedControl" style="display:none; margin-bottom:12px;">
+    <label for="speedSlider" style="font-size:13px; color:#444;">Spreeksnelheid</label>
+    <input type="range" id="speedSlider" min="0.8" max="1.0" step="0.01" value="1.0" style="width:100%;">
+  </div>
+
+  <!-- AUDIO BUTTONS -->
+  <div id="audioControls" class="audio-controls">
+    <button class="audio-btn" onclick="speakTranslation()">▶️ Afspelen</button>
+    <button class="audio-btn pause" onclick="pauseSpeaking()">⏸️ Pauze</button>
+    <button class="audio-btn stop" onclick="stopSpeaking()">⏹️ Stop</button>
+  </div>
+
+  <div id="progressBar"></div>
+
+  <select id="feedSelect" onchange="loadSelectedFeed()"></select>
+  <div id="carousel" class="carousel"></div>
+  <div id="article" class="article"></div>
+
+</div>
+
+<script>
+let items = [];
+let currentIndex = 0;
+
+/* ========= AUDIO ENGINE ========= */
+
+let isSpeaking = false;
+let isPaused = false;
+let currentUtterance = null;
+let currentLineIndex = 0;
+let lines = [];
+let speechRate = 1.0;
+
+document.getElementById("speedSlider").addEventListener("input", (e) => {
+  speechRate = parseFloat(e.target.value);
+});
+
+function getBrazilianVoice() {
+  const voices = speechSynthesis.getVoices();
+  return (
+    voices.find(v => v.lang === "pt-BR") ||
+    voices.find(v => v.lang.startsWith("pt")) ||
+    voices[0]
+  );
+}
+
+function updateProgress() {
+  const bar = document.getElementById("progressBar");
+  if (!isSpeaking) {
+    bar.style.display = "none";
+    return;
+  }
+  bar.style.display = "block";
+  bar.innerText = `Zin ${currentLineIndex + 1} van ${lines.length}`;
+}
+
+function highlightActiveLine() {
+  document.querySelectorAll(".translation-line").forEach(el => {
+    el.classList.remove("active-line");
+  });
+  const active = document.querySelector(`.translation-line[data-index="${currentLineIndex}"]`);
+  if (active) active.classList.add("active-line");
+}
+
+function speakTranslation() {
+  if (isSpeaking) return;
+
+  const article = document.getElementById("article");
+  lines = [...article.querySelectorAll(".translation-line")].map(el => el.innerText);
+
+  if (lines.length === 0) return;
+
+  const voice = getBrazilianVoice();
+  isSpeaking = true;
+  isPaused = false;
+  currentLineIndex = 0;
+
+  function speakNext() {
+    if (!isSpeaking || currentLineIndex >= lines.length) {
+      isSpeaking = false;
+      updateProgress();
+      highlightActiveLine();
+      return;
+    }
+
+    highlightActiveLine();
+    updateProgress();
+
+    currentUtterance = new SpeechSynthesisUtterance(lines[currentLineIndex]);
+    currentUtterance.voice = voice;
+    currentUtterance.rate = speechRate;
+    currentUtterance.pitch = 1.0;
+
+    currentUtterance.onend = () => {
+      if (!isPaused) {
+        currentLineIndex++;
+        speakNext();
+      }
+    };
+
+    speechSynthesis.speak(currentUtterance);
+  }
+
+  speakNext();
+}
+
+function pauseSpeaking() {
+  if (!isSpeaking) return;
+  if (!isPaused) {
+    speechSynthesis.pause();
+    isPaused = true;
+  } else {
+    speechSynthesis.resume();
+    isPaused = false;
+  }
+}
+
+function stopSpeaking() {
+  isSpeaking = false;
+  isPaused = false;
+  speechSynthesis.cancel();
+  updateProgress();
+  document.querySelectorAll(".translation-line").forEach(el => el.classList.remove("active-line"));
+}
+
+function playSingleLine(i) {
+  stopSpeaking();
+  const voice = getBrazilianVoice();
+  const el = document.querySelector(`.translation-line[data-index="${i}"]`);
+  if (!el) return;
+
+  document.querySelectorAll(".translation-line").forEach(x => x.classList.remove("active-line"));
+  el.classList.add("active-line");
+
+  const text = el.innerText.trim();
+  const u = new SpeechSynthesisUtterance(text);
+  u.voice = voice;
+  u.rate = speechRate;
+  u.pitch = 1.0;
+
+  u.onend = () => el.classList.remove("active-line");
+
+  speechSynthesis.speak(u);
+}
+
+function prevLine() {
+  if (!lines.length) return;
+  stopSpeaking();
+  currentLineIndex = Math.max(0, currentLineIndex - 1);
+  playSingleLine(currentLineIndex);
+}
+
+function nextLine() {
+  if (!lines.length) return;
+  stopSpeaking();
+  currentLineIndex = Math.min(lines.length - 1, currentLineIndex + 1);
+  playSingleLine(currentLineIndex);
+}
+
+/* ========= BATCH VERTALING ========= */
+
+async function translateSentencesBatch(sentences, targetLang = "pt-BR") {
+  try {
+    const url = `/api/translate?sentences=${JSON.stringify(sentences)}&target=${targetLang}`;
+    const resp = await fetch(url);
+    const data = await resp.json();
+    return Array.isArray(data.translations) ? data.translations : [];
+  } catch {
+    return [];
+  }
+}
+
+function splitIntoSentences(text) {
+  return text
+    .replace(/\s+/g, " ")
+    .trim()
+    .split(/(?<![A-Z][a-z]\.)(?<![A-Z][a-z][a-z]\.)(?<![Mm]r\.)(?<![Mm]rs\.)(?<![Dd]r\.)(?<![Pp]rof\.)(?<![Ss]r\.)(?<![Jj]r\.)(?<![Vv]s\.)(?<![Ee]tc\.)(?<![Ee]g\.)(?<![Ii]e\.)(?<=[.!?])\s+/)
+    .filter(s => s.trim().length > 0);
+}
+
+async function translateArticleContent(html, targetLang = "pt-BR") {
+  const temp = document.createElement("div");
+  temp.innerHTML = html;
+  
+  // Extraheer tekst maar behoud structuur
+  const walker = document.createTreeWalker(temp, NodeFilter.SHOW_TEXT, null);
+  const textNodes = [];
+  while (walker.nextNode()) {
+    textNodes.push(walker.currentNode);
+  }
+  
+  let allSentences = [];
+  const nodeToSentencesMap = new Map();
+  
+  // Verzamel zinnen per tekstnode
+  textNodes.forEach(node => {
+    if (node.textContent.trim()) {
+      const sentences = splitIntoSentences(node.textContent);
+      if (sentences.length > 0) {
+        nodeToSentencesMap.set(node, sentences);
+        allSentences = allSentences.concat(sentences);
+      }
+    }
+  });
+  
+  if (allSentences.length === 0) return html;
+  
+  // Vertaal in batches
+  const chunkSize = 20;
+  const chunks = [];
+  for (let i = 0; i < allSentences.length; i += chunkSize) {
+    chunks.push(allSentences.slice(i, i + chunkSize));
+  }
+  
+  const results = await Promise.all(
+    chunks.map(chunk => translateSentencesBatch(chunk, targetLang))
+  );
+  
+  const translations = results.flat();
+  
+  // Vervang elke tekstnode met gestructureerde uitvoer
+  let translationIndex = 0;
+  textNodes.forEach(node => {
+    const sentences = nodeToSentencesMap.get(node);
+    if (sentences && sentences.length > 0) {
+      const parent = node.parentNode;
+      const fragment = document.createDocumentFragment();
+      
+      sentences.forEach((sentence, i) => {
+        // Maak een container groep voor elke zin
+        const groupDiv = document.createElement("div");
+        groupDiv.className = "translation-group";
+        
+        // Originele zin
+        const originalSpan = document.createElement("span");
+        originalSpan.className = "translation-original";
+        originalSpan.textContent = sentence;
+        
+        // Vertaling
+        const translationSpan = document.createElement("span");
+        translationSpan.className = "translation-line";
+        translationSpan.dataset.index = translationIndex;
+        translationSpan.textContent = translations[translationIndex] || "";
+        translationSpan.onclick = () => playSingleLine(translationIndex);
+        
+        groupDiv.appendChild(originalSpan);
+        groupDiv.appendChild(document.createElement("br"));
+        groupDiv.appendChild(translationSpan);
+        
+        fragment.appendChild(groupDiv);
+        translationIndex++;
+      });
+      
+      parent.replaceChild(fragment, node);
+    }
+  });
+  
+  return temp.innerHTML;
+}
+
+/* ========= CLOUD SYNC + RSS ========= */
+
+async function fetchCloudData(url) {
+  if (!url) return [];
+  try {
+    const resp = await fetch(url);
+    const text = await resp.text();
+    return text.split(/[\r\n]+/).map(r => r.replace(/^"|"$/g, "").trim()).filter(r => r);
+  } catch {
+    return null;
+  }
+}
+
+async function startSync() {
+  const statusEl = document.getElementById("syncStatus");
+  statusEl.textContent = "(Syncing...)";
+
+  const wordUrl = localStorage.getItem("syncSheetUrl");
+  const feedUrl = localStorage.getItem("syncFeedUrl");
+
+  const [words, feeds] = await Promise.all([
+    fetchCloudData(wordUrl),
+    fetchCloudData(feedUrl)
+  ]);
+
+  if (words) localStorage.setItem("highlightWords", JSON.stringify(words));
+  if (feeds) localStorage.setItem("rssFeeds", JSON.stringify(feeds));
+
+  statusEl.textContent = words && feeds ? "(Cloud OK)" : "(Offline mode)";
+}
+
+function applyHighlights(html, words) {
+  if (!words || words.length === 0) return html;
+  const pattern = [...words]
+    .sort((a, b) => b.length - a.length)
+    .map(w => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+    .join("|");
+  const regex = new RegExp(`\\b(${pattern})\\b(?=[^>]*<)`, "gi");
+  return html.replace(regex, m => `<mark class="custom-highlight">${m}</mark>`);
+}
+
+function loadSavedFeeds() {
+  const select = document.getElementById("feedSelect");
+  const feeds = JSON.parse(localStorage.getItem("rssFeeds") || "[]");
+  select.innerHTML = feeds.map(f => `<option value="${f}">${f}</option>`).join("");
+  if (feeds.length > 0) loadFeed(feeds[0]);
+}
+
+async function loadFeed(url) {
+  const carousel = document.getElementById("carousel");
+  carousel.innerHTML = "Laden...";
+  try {
+    const resp = await fetch(
+      `https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(url)}`
+    );
+    const data = await resp.json();
+    items = data.items || [];
+    
+    carousel.innerHTML = items
+      .map((item, idx) => `<div class="slide" data-index="${idx}"><img src="${
+        item.thumbnail ||
+        (item.enclosure && item.enclosure.link) ||
+        "https://via.placeholder.com/150"
+      }"></div>`)
+      .join("");
+    
+    // Wacht even zodat de slides geladen zijn voordat we scroll event listener activeren
+    setTimeout(() => {
+      // Alleen eerste artikel laden als er nog niet gescrolled is
+      if (carousel.scrollLeft === 0) {
+        loadArticle(0);
+      }
+    }, 100);
+    
+  } catch {
+    carousel.innerHTML = "Fout bij laden.";
+  }
+}
+
+function loadSelectedFeed() {
+  loadFeed(document.getElementById("feedSelect").value);
+}
+
+async function loadArticle(index) {
+  stopSpeaking();
+
+  const container = document.getElementById("article");
+  container.style.opacity = 0;
+  container.innerHTML = "Laden...";
+  currentIndex = index;
+
+  try {
+    const link = items[index]?.link;
+    if (!link) return;
+
+    const resp = await fetch(`/api/article?url=${encodeURIComponent(link)}`);
+    const data = await resp.json();
+    const words = JSON.parse(localStorage.getItem("highlightWords") || "[]");
+
+    let html = data.content;
+    const title = data.title || "";
+
+    const translateOn = document.getElementById("toggleTranslate").checked;
+
+    document.getElementById("audioControls").style.display =
+    document.getElementById("audioNav").style.display =
+    document.getElementById("speedControl").style.display =
+      translateOn ? "flex" : "none";
+
+    if (translateOn) {
+      html = await translateArticleContent(html, "pt-BR");
+    }
+
+    container.innerHTML = `
+      <h2>${applyHighlights(title, words)}</h2>
+      ${applyHighlights(html, words)}
+    `;
+
+    requestAnimationFrame(() => container.style.opacity = 1);
+
+  } catch {
+    container.innerHTML = "Fout.";
+  }
+}
+
+/* ========= SWIPE ========= */
+
+let carouselScrollTimeout;
+
+document.getElementById("carousel").onscroll = () => {
+  clearTimeout(carouselScrollTimeout);
+  carouselScrollTimeout = setTimeout(() => {
+    const slide = document.querySelector(".slide");
+    if (!slide) return;
+    const slideWidth = slide.offsetWidth + 10;
+    const index = Math.round(document.getElementById("carousel").scrollLeft / slideWidth);
+    if (index !== currentIndex && items[index]) {
+      loadArticle(index);
+    }
+  }, 50); // Kortere timeout voor snellere respons
+};
+
+// Directe klik op slides (optioneel, voor betere UX)
+document.getElementById("carousel").addEventListener("click", (e) => {
+  const slide = e.target.closest(".slide");
+  if (slide) {
+    const index = parseInt(slide.dataset.index);
+    if (!isNaN(index) && index !== currentIndex && items[index]) {
+      // Scroll naar de geselecteerde slide
+      slide.scrollIntoView({ behavior: 'smooth', inline: 'center' });
+      // Laad het artikel
+      loadArticle(index);
+    }
+  }
+});
+
+/* ========= INIT ========= */
+
+async function init() {
+  await startSync();
+  loadSavedFeeds();
+
+  if (typeof speechSynthesis !== "undefined") {
+    speechSynthesis.onvoiceschanged = () => {};
+  }
+}
+init();
+
+</script>
+</body>
+</html>
