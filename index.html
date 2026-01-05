@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>RSS Reader – Fast Translation</title>
+<title>RSS Reader – Zinparen Instant</title>
 
 <style>
   body { font-family: Arial, sans-serif; margin: 0; padding: 0; background: #f5f5f5; }
@@ -31,73 +31,103 @@
              line-height: 1.25; font-size: 15px; opacity: 0; animation: fadeIn 0.4s forwards; }
   .article h2 { font-size: 18px; margin-top: 0; line-height: 1.2; margin-bottom: 20px; }
 
-  .translation-group {
-    margin-bottom: 12px;
-    border-left: 2px solid #e0e0e0;
-    padding-left: 8px;
+  /* ZINPAAR CONTAINER - BELANGRIJK */
+  .sentence-pair {
+    margin-bottom: 16px;
+    padding: 12px;
+    border-radius: 8px;
+    background: white;
+    border: 1px solid #e0e0e0;
+    transition: all 0.3s ease;
   }
 
-  .translation-original {
+  .sentence-pair.ready {
+    background: #f8fff8;
+    border-color: #c8e6c9;
+    box-shadow: 0 2px 8px rgba(200, 230, 201, 0.3);
+  }
+
+  .sentence-pair.loading {
+    background: #f8f9fa;
+    border-left: 4px solid #0078ff;
+  }
+
+  .dutch-sentence {
     display: block;
-    margin-bottom: 2px;
+    margin-bottom: 8px;
     line-height: 1.4;
+    color: #333;
+    font-size: 15px;
+    font-weight: 500;
   }
 
-  .translation-line {
+  .portuguese-sentence {
     display: block;
     color: #003399;
     font-style: italic;
-    margin-left: 10px;
-    margin-bottom: 8px;
     line-height: 1.4;
-    cursor: pointer;
-    padding: 2px 4px;
-    border-radius: 3px;
+    margin-left: 10px;
+    padding: 8px 10px;
+    border-radius: 6px;
+    background: #f8f9fa;
+    border-left: 3px solid #0078ff;
     min-height: 24px;
+    cursor: pointer;
+    transition: all 0.2s;
   }
 
-  .translation-line.loading {
-    color: #999;
-    background: linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%);
+  .portuguese-sentence:hover {
+    background: #f0f7ff;
+    transform: translateX(2px);
+  }
+
+  .portuguese-sentence.loading {
+    color: #6c757d;
+    font-style: normal;
+    background: linear-gradient(90deg, #f8f9fa 25%, #e9ecef 50%, #f8f9fa 75%);
     background-size: 200% 100%;
     animation: loading 1.5s infinite;
-    width: 80%;
   }
 
-  .translation-line:hover:not(.loading) {
-    background-color: #f0f0f0;
-  }
-
-  .translation-line.active-line {
-    background-color: #e3f2fd;
-    text-decoration: underline;
-    text-decoration-thickness: 2px;
+  .portuguese-sentence.ready {
+    background: #e8f5e9;
+    border-left-color: #4caf50;
   }
 
   /* Grammatica markering */
-  .translation-line strong {
+  .portuguese-sentence strong {
     font-weight: bold !important;
   }
 
-  .translation-line .noun {
+  .portuguese-sentence .noun {
     color: #8b0000 !important;
   }
 
-  /* Progress indicator */
-  .progress-container {
-    margin: 10px 0;
-    height: 4px;
-    background: #e0e0e0;
-    border-radius: 2px;
-    overflow: hidden;
+  /* Priority queue - eerste zinnen krijgen voorrang */
+  .priority-queue {
+    position: sticky;
+    top: 10px;
+    background: #0078ff;
+    color: white;
+    padding: 8px 12px;
+    border-radius: 6px;
+    margin-bottom: 15px;
+    font-size: 14px;
     display: none;
+    z-index: 100;
   }
-  
-  .progress-bar {
-    height: 100%;
-    background: linear-gradient(90deg, #0078ff, #00aaff);
-    width: 0%;
-    transition: width 0.3s ease;
+
+  /* Stats */
+  .translation-stats {
+    display: flex;
+    justify-content: space-between;
+    background: #e3f2fd;
+    padding: 10px 15px;
+    border-radius: 8px;
+    margin: 15px 0;
+    font-size: 14px;
+    color: #1565c0;
+    border: 1px solid #bbdefb;
   }
 
   .toggle-row { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
@@ -111,34 +141,58 @@
 
   .audio-btn {
     flex: 1;
-    padding: 12px;
-    font-size: 16px;
+    padding: 10px;
+    font-size: 15px;
     border: none;
-    border-radius: 8px;
+    border-radius: 6px;
     background: #0078ff;
     color: white;
     font-weight: bold;
     text-align: center;
+    cursor: pointer;
+    transition: background-color 0.2s;
   }
 
-  .audio-btn.stop { background: #cc0000; }
-  .audio-btn.pause { background: #ffaa00; }
-
-  #progressBar {
-    font-size: 13px;
-    color: #444;
-    margin-bottom: 8px;
-    display: none;
+  .audio-btn:hover {
+    background: #0056cc;
   }
+
+  .audio-btn:disabled {
+    background: #6c757d;
+    cursor: not-allowed;
+  }
+
+  .audio-btn.stop { background: #dc3545; }
+  .audio-btn.stop:hover { background: #c82333; }
+  .audio-btn.pause { background: #ffc107; color: #212529; }
+  .audio-btn.pause:hover { background: #e0a800; }
 
   @keyframes fadeIn { to { opacity: 1; } }
   @keyframes loading {
     0% { background-position: 200% 0; }
     100% { background-position: -200% 0; }
   }
+
+  /* Snelle feedback */
+  .quick-feedback {
+    position: fixed;
+    bottom: 20px;
+    right: 20px;
+    background: #28a745;
+    color: white;
+    padding: 10px 16px;
+    border-radius: 6px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+    display: none;
+    z-index: 1000;
+    font-size: 14px;
+  }
 </style>
 </head>
 <body>
+
+<!-- Quick Feedback -->
+<div class="quick-feedback" id="quickFeedback"></div>
 
 <div class="container">
 
@@ -158,22 +212,28 @@
     <label for="toggleGrammar">Werkwoorden (vet) & zelfstandige naamwoorden (rood) markeren</label>
   </div>
 
-  <!-- PROGRESS BAR -->
-  <div class="progress-container" id="progressContainer">
-    <div class="progress-bar" id="progressBarFill"></div>
+  <!-- Priority Queue Indicator -->
+  <div class="priority-queue" id="priorityQueue">
+    ⚡ <strong>Eerste 8 zinnen krijgen voorrang</strong> - je kunt direct beginnen lezen!
+  </div>
+
+  <!-- Translation Stats -->
+  <div class="translation-stats" id="translationStats" style="display: none;">
+    <span id="statsProgress">0/0 zinnen klaar</span>
+    <span id="statsSpeed">~ 0s resterend</span>
   </div>
 
   <!-- AUDIO BUTTONS -->
   <div id="audioControls" class="audio-controls">
-    <button class="audio-btn" onclick="speakTranslation()">▶️ Afspelen</button>
+    <button class="audio-btn" onclick="speakTranslation()" id="speakBtn">▶️ Afspelen</button>
     <button class="audio-btn pause" onclick="pauseSpeaking()">⏸️ Pauze</button>
     <button class="audio-btn stop" onclick="stopSpeaking()">⏹️ Stop</button>
   </div>
 
-  <div id="progressBar"></div>
-
   <select id="feedSelect" onchange="loadSelectedFeed()"></select>
   <div id="carousel" class="carousel"></div>
+  
+  <!-- ARTICLE -->
   <div id="article" class="article"></div>
 
 </div>
@@ -182,8 +242,272 @@
 let items = [];
 let currentIndex = 0;
 let currentArticleData = null;
+let isTranslating = false;
+let translationQueue = [];
 
-/* ========= OPTIMIZED BATCH TRANSLATION ========= */
+/* ========= INSTANT ZINPAREN RENDERING ========= */
+
+async function loadArticle(index) {
+  stopSpeaking();
+  stopTranslation();
+  
+  const container = document.getElementById("article");
+  container.style.opacity = 0;
+  currentIndex = index;
+
+  try {
+    const link = items[index]?.link;
+    if (!link) return;
+
+    // Super snel: toon "laden" en haal data op
+    container.innerHTML = "<div style='padding: 20px; text-align: center;'>Artikel laden...</div>";
+    container.style.opacity = 1;
+
+    const resp = await fetch(`/api/article?url=${encodeURIComponent(link)}`);
+    const data = await resp.json();
+    const words = JSON.parse(localStorage.getItem("highlightWords") || "[]");
+
+    const html = data.content;
+    const title = data.title || "";
+
+    // Extract zinnen
+    const temp = document.createElement("div");
+    temp.innerHTML = html;
+    const text = temp.textContent || temp.innerText || "";
+    const sentences = splitIntoSentences(text);
+    
+    currentArticleData = {
+      title: title,
+      sentences: sentences,
+      highlightWords: words,
+      translations: new Array(sentences.length).fill(null)
+    };
+
+    // BELANGRIJK: Render ALLE zinparen DIRECT
+    renderAllSentencePairs(sentences, title, words);
+    
+    // Toon stats
+    document.getElementById('translationStats').style.display = 'flex';
+    document.getElementById('priorityQueue').style.display = 'block';
+    updateStats(0, sentences.length);
+    
+    // Start vertaling als ingeschakeld
+    const translateOn = document.getElementById("toggleTranslate").checked;
+    if (translateOn && sentences.length > 0) {
+      document.getElementById("audioControls").style.display = "flex";
+      document.getElementById("speakBtn").disabled = true;
+      
+      // START HIER: Priority vertaling voor eerste zinnen
+      translateWithPriority(sentences, "pt-BR");
+    } else {
+      document.getElementById("audioControls").style.display = "none";
+    }
+
+  } catch (error) {
+    console.error("Fout bij laden artikel:", error);
+    container.innerHTML = "<div style='padding: 20px; color: #dc3545;'>Fout bij laden van artikel.</div>";
+    container.style.opacity = 1;
+  }
+}
+
+function renderAllSentencePairs(sentences, title, words) {
+  const container = document.getElementById("article");
+  const translateOn = document.getElementById("toggleTranslate").checked;
+  
+  let html = `<h2>${applyHighlights(title, words)}</h2>`;
+  
+  // Render ALLE zinnen direct als paren
+  sentences.forEach((sentence, index) => {
+    const pairId = `pair-${index}`;
+    const translationId = `trans-${index}`;
+    
+    html += `
+      <div class="sentence-pair ${translateOn ? 'loading' : ''}" id="${pairId}">
+        <span class="dutch-sentence">${applyHighlights(sentence, words)}</span>
+        <span class="portuguese-sentence loading" 
+               id="${translationId}"
+               data-index="${index}"
+               onclick="playSingleLine(${index})">
+          ${translateOn ? 'Vertaling wordt geladen...' : 'Vertaling uitgeschakeld'}
+        </span>
+      </div>
+    `;
+  });
+  
+  container.innerHTML = html;
+  container.style.opacity = 1;
+}
+
+/* ========= PRIORITY TRANSLATION STRATEGY ========= */
+
+async function translateWithPriority(sentences, targetLang = "pt-BR") {
+  if (isTranslating) return;
+  isTranslating = true;
+  
+  const startTime = Date.now();
+  const totalSentences = sentences.length;
+  let translatedCount = 0;
+  
+  // STRATEGIE: Verdeel in 3 fasen voor optimale ervaring
+  const PHASE1_SIZE = 8;   // Eerste 8 zinnen - HOOGSTE PRIORITEIT
+  const PHASE2_SIZE = 12;  // Volgende 12 zinnen
+  const PHASE3_SIZE = 20;  // Rest - laagste prioriteit
+  
+  showQuickFeedback("🚀 Start vertaling: eerste zinnen krijgen voorrang!");
+  
+  // FASE 1: Eerste 8 zinnen - DIRECT voor lezen
+  const phase1Sentences = sentences.slice(0, PHASE1_SIZE);
+  if (phase1Sentences.length > 0) {
+    await translateAndUpdateBatch(phase1Sentences, 0, targetLang);
+    translatedCount += phase1Sentences.length;
+    
+    showQuickFeedback(`✅ Eerste ${phase1Sentences.length} zinparen klaar! Begin met lezen.`);
+    document.getElementById("speakBtn").disabled = false; // Kan nu al voorlezen
+  }
+  
+  // FASE 2: Volgende 12 zinnen - parallel in batches van 4
+  if (sentences.length > PHASE1_SIZE) {
+    const phase2Sentences = sentences.slice(PHASE1_SIZE, PHASE1_SIZE + PHASE2_SIZE);
+    const phase2Batches = createSmartBatches(phase2Sentences, 4);
+    
+    for (let i = 0; i < phase2Batches.length; i++) {
+      const batch = phase2Batches[i];
+      const startIdx = PHASE1_SIZE + (i * 4);
+      await translateAndUpdateBatch(batch, startIdx, targetLang);
+      translatedCount += batch.length;
+      
+      updateStats(translatedCount, totalSentences);
+    }
+  }
+  
+  // FASE 3: Rest - in grotere batches voor efficiëntie
+  if (sentences.length > PHASE1_SIZE + PHASE2_SIZE) {
+    const phase3Sentences = sentences.slice(PHASE1_SIZE + PHASE2_SIZE);
+    const phase3Batches = createSmartBatches(phase3Sentences, 8); // Grotere batches
+    
+    for (let i = 0; i < phase3Batches.length; i++) {
+      const batch = phase3Batches[i];
+      const startIdx = PHASE1_SIZE + PHASE2_SIZE + (i * 8);
+      await translateAndUpdateBatch(batch, startIdx, targetLang);
+      translatedCount += batch.length;
+    }
+  }
+  
+  // Voltooid
+  const totalTime = Math.round((Date.now() - startTime) / 1000);
+  updateStats(totalSentences, totalSentences);
+  showQuickFeedback(`🎉 Alle ${totalSentences} zinnen vertaald in ${totalTime}s!`);
+  
+  isTranslating = false;
+}
+
+function createSmartBatches(sentences, batchSize) {
+  const batches = [];
+  for (let i = 0; i < sentences.length; i += batchSize) {
+    batches.push(sentences.slice(i, i + batchSize));
+  }
+  return batches;
+}
+
+async function translateAndUpdateBatch(sentences, startIndex, targetLang) {
+  try {
+    const translations = await translateSentencesBatch(sentences, targetLang);
+    
+    // Update UI voor elke zin in de batch
+    translations.forEach((translation, batchIndex) => {
+      const sentenceIndex = startIndex + batchIndex;
+      if (sentenceIndex < currentArticleData.sentences.length) {
+        // Store in data
+        currentArticleData.translations[sentenceIndex] = translation;
+        
+        // Update UI onmiddellijk
+        updateSingleTranslation(sentenceIndex, translation);
+      }
+    });
+    
+    return translations;
+  } catch (error) {
+    console.error(`Batch vertaling mislukt:`, error);
+    // Markeer als mislukt maar ga door
+    sentences.forEach((_, batchIndex) => {
+      const sentenceIndex = startIndex + batchIndex;
+      updateSingleTranslation(sentenceIndex, 
+        `<span style="color: #dc3545;">[Vertaling mislukt, probeer opnieuw]</span>`);
+    });
+    return sentences;
+  }
+}
+
+function updateSingleTranslation(index, translation) {
+  const translationEl = document.getElementById(`trans-${index}`);
+  const pairEl = document.getElementById(`pair-${index}`);
+  
+  if (!translationEl || !pairEl) return;
+  
+  // Verwijder loading state
+  translationEl.classList.remove('loading');
+  pairEl.classList.remove('loading');
+  
+  // Voeg ready state toe
+  translationEl.classList.add('ready');
+  pairEl.classList.add('ready');
+  
+  // Pas grammatica markup toe
+  const grammarEnabled = document.getElementById("toggleGrammar").checked;
+  let translationHTML = translation || "";
+  
+  if (grammarEnabled && translationHTML) {
+    translationHTML = translationHTML
+      .replace(/<span style="color:darkred">/g, '<span class="noun">')
+      .replace(/<span style="color: darkred">/g, '<span class="noun">');
+  } else if (!grammarEnabled && translationHTML) {
+    translationHTML = translationHTML
+      .replace(/<strong>/g, '')
+      .replace(/<\/strong>/g, '')
+      .replace(/<span[^>]*>/g, '')
+      .replace(/<\/span>/g, '');
+  }
+  
+  translationEl.innerHTML = translationHTML;
+  translationEl.onclick = () => playSingleLine(index);
+}
+
+function updateStats(completed, total) {
+  const progressEl = document.getElementById('statsProgress');
+  const speedEl = document.getElementById('statsSpeed');
+  
+  if (progressEl) {
+    progressEl.textContent = `${completed}/${total} zinparen klaar`;
+  }
+  
+  if (speedEl) {
+    if (completed === 0) {
+      speedEl.textContent = 'Start...';
+    } else if (completed === total) {
+      speedEl.textContent = '🎉 Voltooid!';
+    } else {
+      const estimated = Math.round(((total - completed) / 4) * 3); // Schatting
+      speedEl.textContent = `~ ${estimated}s resterend`;
+    }
+  }
+}
+
+function showQuickFeedback(message) {
+  const feedback = document.getElementById('quickFeedback');
+  feedback.textContent = message;
+  feedback.style.display = 'block';
+  
+  setTimeout(() => {
+    feedback.style.display = 'none';
+  }, 3000);
+}
+
+function stopTranslation() {
+  isTranslating = false;
+  translationQueue = [];
+}
+
+/* ========= FIXED TRANSLATION BATCH ========= */
 
 async function translateSentencesBatch(sentences, targetLang = "pt-BR") {
   if (sentences.length === 0) return [];
@@ -192,7 +516,6 @@ async function translateSentencesBatch(sentences, targetLang = "pt-BR") {
   
   try {
     const url = `/api/translate?sentences=${encodeURIComponent(JSON.stringify(sentences))}&target=${targetLang}`;
-    console.log(`📤 API call: ${sentences.length} zinnen`);
     
     const response = await fetch(url);
     
@@ -202,25 +525,18 @@ async function translateSentencesBatch(sentences, targetLang = "pt-BR") {
     }
     
     const data = await response.json();
-    console.log('📥 API response:', data);
-    
-    // EXTRA DEBUG: Log de volledige response
-    console.log('🔍 Full API response structure:', JSON.stringify(data).substring(0, 500));
     
     // VERSCHILLENDE RESPONSE FORMATEN
     let translations = [];
     
     if (data.translations && Array.isArray(data.translations)) {
       translations = data.translations;
-      console.log(`✅ Vertalingen gevonden: ${translations.length}`);
     } 
     else if (Array.isArray(data)) {
       translations = data;
-      console.log(`✅ Direct array: ${translations.length} items`);
     }
     else if (data.text) {
       translations = [data.text];
-      console.log(`✅ Single text: "${data.text.substring(0, 50)}..."`);
     }
     else {
       console.error('❌ Onbekend response format:', data);
@@ -232,20 +548,11 @@ async function translateSentencesBatch(sentences, targetLang = "pt-BR") {
       const firstTrans = translations[0] || '';
       const firstOrig = sentences[0] || '';
       
-      console.log(`🔍 Eerste origineel: "${firstOrig.substring(0, 50)}..."`);
-      console.log(`🔍 Eerste vertaling: "${firstTrans.substring(0, 50)}..."`);
-      
       // Check of het Portugees is
       const portugueseChars = firstTrans.match(/[áàâãéèêíìîóòôõúùûçñ]/gi);
-      console.log(`🔍 Portugese karakters gevonden: ${portugueseChars ? portugueseChars.length : 0}`);
       
-      if (firstTrans === firstOrig) {
-        console.warn('⚠️ WAARSCHUWING: Vertaling gelijk aan origineel!');
-        // Als het niet Portugees is, markeer het als mislukt
-        if (!portugueseChars || portugueseChars.length < 1) {
-          console.error('❌ Vertaling mislukt - geen Portugees gedetecteerd');
-          return sentences.map(s => `<span style="color: red">[Vertaling mislukt: ${s}]</span>`);
-        }
+      if (firstTrans === firstOrig && (!portugueseChars || portugueseChars.length < 1)) {
+        console.warn('⚠️ Vertaling lijkt niet gewerkt te hebben');
       }
     }
     
@@ -253,62 +560,8 @@ async function translateSentencesBatch(sentences, targetLang = "pt-BR") {
     
   } catch (error) {
     console.error('❌ Vertaling mislukt:', error);
-    return sentences.map(s => `<span style="color: #999">[Vertaling tijdelijk niet beschikbaar]</span>`);
+    return sentences;
   }
-}
-
-/* ========= TRANSLATION CACHE ========= */
-const TRANSLATION_CACHE = new Map();
-
-function getCacheKey(sentences, targetLang) {
-  // Simple hash function for cache key
-  const text = sentences.join('|') + targetLang;
-  let hash = 0;
-  for (let i = 0; i < text.length; i++) {
-    const char = text.charCodeAt(i);
-    hash = ((hash << 5) - hash) + char;
-    hash = hash & hash;
-  }
-  return 'trans_' + Math.abs(hash);
-}
-
-async function translateWithCache(sentences, targetLang = "pt-BR") {
-  if (sentences.length === 0) return [];
-  
-  const cacheKey = getCacheKey(sentences, targetLang);
-  
-  // Check memory cache first
-  if (TRANSLATION_CACHE.has(cacheKey)) {
-    console.log(`[Cache] Memory hit for ${sentences.length} sentences`);
-    return TRANSLATION_CACHE.get(cacheKey);
-  }
-  
-  // Check localStorage
-  try {
-    const cached = localStorage.getItem(cacheKey);
-    if (cached) {
-      const parsed = JSON.parse(cached);
-      TRANSLATION_CACHE.set(cacheKey, parsed);
-      console.log(`[Cache] LocalStorage hit for ${sentences.length} sentences`);
-      return parsed;
-    }
-  } catch (e) {
-    console.log('[Cache] LocalStorage not available');
-  }
-  
-  // Get fresh translation
-  console.log(`[Cache] Miss - fetching ${sentences.length} sentences`);
-  const translations = await translateSentencesBatch(sentences, targetLang);
-  
-  // Cache the result
-  TRANSLATION_CACHE.set(cacheKey, translations);
-  try {
-    localStorage.setItem(cacheKey, JSON.stringify(translations));
-  } catch (e) {
-    // LocalStorage might be full, that's ok
-  }
-  
-  return translations;
 }
 
 /* ========= AUDIO ENGINE ========= */
@@ -328,29 +581,11 @@ function getBrazilianVoice() {
   );
 }
 
-function updateProgress() {
-  const bar = document.getElementById("progressBar");
-  if (!isSpeaking) {
-    bar.style.display = "none";
-    return;
-  }
-  bar.style.display = "block";
-  bar.innerText = `Zin ${currentLineIndex + 1} van ${lines.length}`;
-}
-
-function highlightActiveLine() {
-  document.querySelectorAll(".translation-line").forEach(el => {
-    el.classList.remove("active-line");
-  });
-  const active = document.querySelector(`.translation-line[data-index="${currentLineIndex}"]`);
-  if (active) active.classList.add("active-line");
-}
-
 function speakTranslation() {
   if (isSpeaking) return;
 
   const article = document.getElementById("article");
-  lines = [...article.querySelectorAll(".translation-line:not(.loading)")].map(el => {
+  lines = [...article.querySelectorAll(".portuguese-sentence.ready")].map(el => {
     const temp = document.createElement('div');
     temp.innerHTML = el.innerHTML;
     temp.querySelectorAll('strong, .noun').forEach(tag => {
@@ -360,7 +595,7 @@ function speakTranslation() {
   }).filter(text => text.length > 0);
 
   if (lines.length === 0) {
-    alert("Geen vertaalde zinnen om voor te lezen");
+    showQuickFeedback("⚠️ Nog geen vertaalde zinnen om voor te lezen");
     return;
   }
 
@@ -372,13 +607,8 @@ function speakTranslation() {
   function speakNext() {
     if (!isSpeaking || currentLineIndex >= lines.length) {
       isSpeaking = false;
-      updateProgress();
-      highlightActiveLine();
       return;
     }
-
-    highlightActiveLine();
-    updateProgress();
 
     currentUtterance = new SpeechSynthesisUtterance(lines[currentLineIndex]);
     currentUtterance.voice = voice;
@@ -413,18 +643,13 @@ function stopSpeaking() {
   isSpeaking = false;
   isPaused = false;
   speechSynthesis.cancel();
-  updateProgress();
-  document.querySelectorAll(".translation-line").forEach(el => el.classList.remove("active-line"));
 }
 
 function playSingleLine(i) {
   stopSpeaking();
   const voice = getBrazilianVoice();
-  const el = document.querySelector(`.translation-line[data-index="${i}"]`);
+  const el = document.querySelector(`.portuguese-sentence[data-index="${i}"]`);
   if (!el || el.classList.contains('loading')) return;
-
-  document.querySelectorAll(".translation-line").forEach(x => x.classList.remove("active-line"));
-  el.classList.add("active-line");
 
   const temp = document.createElement('div');
   temp.innerHTML = el.innerHTML;
@@ -433,17 +658,17 @@ function playSingleLine(i) {
   });
   const text = temp.textContent.trim();
 
+  if (!text) return;
+
   const u = new SpeechSynthesisUtterance(text);
   u.voice = voice;
   u.rate = 1.0;
   u.pitch = 1.0;
 
-  u.onend = () => el.classList.remove("active-line");
-
   speechSynthesis.speak(u);
 }
 
-/* ========= SENTENCE PROCESSING ========= */
+/* ========= HELPER FUNCTIONS ========= */
 
 function splitIntoSentences(text) {
   return text
@@ -453,105 +678,14 @@ function splitIntoSentences(text) {
     .filter(s => s.trim().length > 0);
 }
 
-function updateProgressBar(percent, message = "") {
-  const container = document.getElementById("progressContainer");
-  const bar = document.getElementById("progressBarFill");
-  
-  if (percent <= 0 || percent >= 100) {
-    container.style.display = "none";
-  } else {
-    container.style.display = "block";
-    bar.style.width = `${percent}%`;
-  }
-}
-
-async function translateArticleContent(html, targetLang = "pt-BR") {
-  const temp = document.createElement("div");
-  temp.innerHTML = html;
-  
-  // Extract all text content
-  const text = temp.textContent || temp.innerText || "";
-  const sentences = splitIntoSentences(text);
-  
-  if (sentences.length === 0) {
-    return html;
-  }
-  
-  console.log(`[Process] Found ${sentences.length} sentences`);
-  
-  // OPTIMIZATION: Process in optimal batches
-  const OPTIMAL_BATCH_SIZE = 12; // Best balance for speed
-  const allTranslations = [];
-  
-  // Process in parallel batches for maximum speed
-  const batchPromises = [];
-  let completedBatches = 0;
-  
-  for (let i = 0; i < sentences.length; i += OPTIMAL_BATCH_SIZE) {
-    const batch = sentences.slice(i, Math.min(i + OPTIMAL_BATCH_SIZE, sentences.length));
-    
-    batchPromises.push(
-      translateWithCache(batch, targetLang).then(translations => {
-        completedBatches++;
-        
-        // Update progress
-        const progress = Math.round((completedBatches / Math.ceil(sentences.length / OPTIMAL_BATCH_SIZE)) * 100);
-        updateProgressBar(progress, `Batch ${completedBatches}`);
-        
-        return { startIdx: i, translations };
-      })
-    );
-  }
-  
-  // Show progress bar
-  updateProgressBar(10, "Start vertaling...");
-  
-  // Wait for all batches
-  const batchResults = await Promise.all(batchPromises);
-  
-  // Combine results in correct order
-  batchResults.sort((a, b) => a.startIdx - b.startIdx);
-  batchResults.forEach(result => {
-    allTranslations.push(...result.translations);
-  });
-  
-  // Hide progress bar
-  updateProgressBar(100);
-  setTimeout(() => updateProgressBar(0), 500);
-  
-  // Build the HTML with translations
-  let outputHTML = '';
-  const grammarEnabled = document.getElementById("toggleGrammar").checked;
-  
-  sentences.forEach((sentence, index) => {
-    let translationHTML = allTranslations[index] || "";
-    
-    // Apply grammar markup if enabled
-    if (grammarEnabled && translationHTML) {
-      translationHTML = translationHTML
-        .replace(/<span style="color:darkred">/g, '<span class="noun">')
-        .replace(/<span style="color: darkred">/g, '<span class="noun">');
-    } else if (!grammarEnabled && translationHTML) {
-      // Remove markup if grammar disabled
-      translationHTML = translationHTML
-        .replace(/<strong>/g, '')
-        .replace(/<\/strong>/g, '')
-        .replace(/<span[^>]*>/g, '')
-        .replace(/<\/span>/g, '');
-    }
-    
-    outputHTML += `
-      <div class="translation-group">
-        <span class="translation-original">${sentence}</span>
-        <br>
-        <span class="translation-line" data-index="${index}" onclick="playSingleLine(${index})">
-          ${translationHTML || '<em style="color: #666">Vertaling laden...</em>'}
-        </span>
-      </div>
-    `;
-  });
-  
-  return outputHTML;
+function applyHighlights(html, words) {
+  if (!words || words.length === 0) return html;
+  const pattern = [...words]
+    .sort((a, b) => b.length - a.length)
+    .map(w => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+    .join("|");
+  const regex = new RegExp(`\\b(${pattern})\\b(?=[^>]*<)`, "gi");
+  return html.replace(regex, m => `<mark class="custom-highlight">${m}</mark>`);
 }
 
 /* ========= CLOUD SYNC + RSS ========= */
@@ -583,16 +717,6 @@ async function startSync() {
   if (feeds) localStorage.setItem("rssFeeds", JSON.stringify(feeds));
 
   statusEl.textContent = words && feeds ? "(Cloud OK)" : "(Offline)";
-}
-
-function applyHighlights(html, words) {
-  if (!words || words.length === 0) return html;
-  const pattern = [...words]
-    .sort((a, b) => b.length - a.length)
-    .map(w => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
-    .join("|");
-  const regex = new RegExp(`\\b(${pattern})\\b(?=[^>]*<)`, "gi");
-  return html.replace(regex, m => `<mark class="custom-highlight">${m}</mark>`);
 }
 
 function loadSavedFeeds() {
@@ -635,91 +759,6 @@ function loadSelectedFeed() {
   loadFeed(document.getElementById("feedSelect").value);
 }
 
-async function loadArticle(index) {
-  stopSpeaking();
-
-  const container = document.getElementById("article");
-  container.style.opacity = 0;
-  container.innerHTML = "Artikel laden...";
-  currentIndex = index;
-
-  try {
-    const link = items[index]?.link;
-    if (!link) return;
-
-    const resp = await fetch(`/api/article?url=${encodeURIComponent(link)}`);
-    const data = await resp.json();
-    const words = JSON.parse(localStorage.getItem("highlightWords") || "[]");
-
-    let html = data.content;
-    const title = data.title || "";
-
-    const translateOn = document.getElementById("toggleTranslate").checked;
-
-    document.getElementById("audioControls").style.display =
-      translateOn ? "flex" : "none";
-
-    if (translateOn) {
-      // Show loading state for translations
-      const temp = document.createElement("div");
-      temp.innerHTML = html;
-      const text = temp.textContent || temp.innerText || "";
-      const sentences = splitIntoSentences(text);
-      
-      // Show skeleton while translating
-      let skeletonHTML = `<h2>${applyHighlights(title, words)}</h2>`;
-      sentences.forEach((sentence, idx) => {
-        skeletonHTML += `
-          <div class="translation-group">
-            <span class="translation-original">${sentence}</span>
-            <br>
-            <span class="translation-line loading" data-index="${idx}"></span>
-          </div>
-        `;
-      });
-      
-      container.innerHTML = skeletonHTML;
-      requestAnimationFrame(() => container.style.opacity = 1);
-      
-      // Now do the translation
-      html = await translateArticleContent(html, "pt-BR");
-      
-      // Update with real translations
-      container.innerHTML = `
-        <h2>${applyHighlights(title, words)}</h2>
-        ${html}
-      `;
-      
-    } else {
-      // Just show original content without translation
-      const temp = document.createElement("div");
-      temp.innerHTML = html;
-      const text = temp.textContent || temp.innerText || "";
-      const sentences = splitIntoSentences(text);
-      
-      html = sentences.map(sentence => `
-        <div class="translation-group">
-          <span class="translation-original">${sentence}</span>
-          <br>
-          <span class="translation-line"><em>Vertaling uitgeschakeld</em></span>
-        </div>
-      `).join('');
-      
-      container.innerHTML = `
-        <h2>${applyHighlights(title, words)}</h2>
-        ${html}
-      `;
-      
-      requestAnimationFrame(() => container.style.opacity = 1);
-    }
-
-  } catch (error) {
-    console.error("Fout bij laden artikel:", error);
-    container.innerHTML = "Fout bij laden van artikel.";
-    updateProgressBar(0);
-  }
-}
-
 /* ========= SWIPE ========= */
 
 let carouselScrollTimeout;
@@ -737,7 +776,6 @@ document.getElementById("carousel").onscroll = () => {
   }, 50);
 };
 
-// Directe klik op slides
 document.getElementById("carousel").addEventListener("click", (e) => {
   const slide = e.target.closest(".slide");
   if (slide) {
@@ -752,55 +790,27 @@ document.getElementById("carousel").addEventListener("click", (e) => {
 /* ========= TOGGLE EVENT LISTENERS ========= */
 
 document.getElementById("toggleGrammar").addEventListener("change", function() {
-  if (currentArticleData) {
-    // Reload current article with new grammar setting
-    loadArticle(currentIndex);
+  // Update grammatica voor al vertaalde zinnen
+  if (currentArticleData && currentArticleData.translations) {
+    currentArticleData.translations.forEach((translation, index) => {
+      if (translation) {
+        updateSingleTranslation(index, translation);
+      }
+    });
   }
 });
 
 document.getElementById("toggleTranslate").addEventListener("change", function() {
   if (items.length > 0) {
-    // Reload current article
     loadArticle(currentIndex);
   }
 });
 
-/* ========= DEBUG FUNCTIONS ========= */
-
-window.debugTranslation = async function() {
-  console.log("=== TRANSLATION DEBUG ===");
-  
-  const testSentences = [
-    "The weather is nice today.",
-    "I want to learn Portuguese.",
-    "This is a simple test."
-  ];
-  
-  console.log("Testing with:", testSentences);
-  
-  const result = await translateSentencesBatch(testSentences, "pt-BR");
-  console.log("Result:", result);
-  
-  // Check if Portuguese
-  if (result[0]) {
-    const hasPortuguese = /[áàâãéèêíìîóòôõúùûçñ]/i.test(result[0]);
-    console.log("Has Portuguese characters?", hasPortuguese);
-    console.log("Sample:", result[0]);
-  }
-};
-
 /* ========= INIT ========= */
 
 async function init() {
-  console.log("Reader initialiseren...");
   await startSync();
   loadSavedFeeds();
-
-  if (typeof speechSynthesis !== "undefined") {
-    speechSynthesis.onvoiceschanged = () => {
-      console.log("Spraakstemmen geladen:", speechSynthesis.getVoices().length);
-    };
-  }
 }
 
 init();
