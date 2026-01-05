@@ -39,9 +39,10 @@ Je bent een expert in Portugese grammatica en vertaling. Je taak heeft drie dele
 ]
 
 SPECIFIEKE REGELS:
-- Werkwoorden: markeer in <strong>vet</strong> in de vertaling
-- Zelfstandige naamwoorden: markeer in <span style="color:darkred">donkerrood</span> in de vertaling
+- Werkwoorden: markeer in <strong>vet</strong> in de vertaling (alleen vet, geen achtergrondkleur)
+- Zelfstandige naamwoorden: markeer in <span style="color:darkred">donkerrood</span> in de vertaling (alleen kleur, geen onderstreping)
 - Samengestelde zelfstandige naamwoorden: markeer het GEHELE samengestelde woord (bijv. "carteira de motorista" als één item)
+- EIGENNAMEN: Negeer eigennamen (namen van personen, plaatsen, merken, bedrijven) als zelfstandige naamwoorden
 - Overlapping: als een woord zowel werkwoord als zelfstandig naamwoord kan zijn, volg de context
 - Behoud de originele interpunctie en hoofdletters in de vertaling
 
@@ -62,7 +63,10 @@ ${items.map((s, i) => `${i + 1}. ${s}`).join("\n")}
         messages: [
           { 
             role: "system", 
-            content: "Je bent een precieze grammaticale analyzer. Geef ALTIJD geldige JSON output volgens de specificaties." 
+            content: `Je bent een precieze grammaticale analyzer. Geef ALTIJD geldige JSON output volgens de specificaties.
+            BELANGRIJK: Negeer eigennamen (zoals "Maria", "Rio de Janeiro", "Google") bij het identificeren van zelfstandige naamwoorden.
+            Werkwoorden: markeer met <strong> tags.
+            Zelfstandige naamwoorden: markeer met <span style="color:darkred"> tags.` 
           },
           { role: "user", content: prompt }
         ],
@@ -94,7 +98,7 @@ ${items.map((s, i) => `${i + 1}. ${s}`).join("\n")}
       }));
     }
 
-    // 5) HTML markup toepassen op de vertalingen
+    // 5) HTML markup toepassen op de vertalingen - VEREENVOUDIGDE VERSIE
     const enhancedTranslations = parsedResults.map(result => {
       let html = result.translation || "";
       
@@ -120,9 +124,20 @@ ${items.map((s, i) => `${i + 1}. ${s}`).join("\n")}
         sortedVerbs.forEach(verb => {
           if (verb && verb.trim()) {
             const escapedVerb = verb.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-            // Match alleen als het niet al in een span zit (voor overlap met naamwoorden)
-            const regex = new RegExp(`(?<!<span[^>]*>)\\b${escapedVerb}\\b(?!</span>)`, 'gi');
-            html = html.replace(regex, `<strong>$&</strong>`);
+            // Eenvoudigere regex zonder complexe lookbehind (werkt beter cross-browser)
+            // Vervang alleen als het niet al gemarkeerd is
+            const regex = new RegExp(`(?!<[^>]*?)(${escapedVerb})(?![^<]*?>)`, 'gi');
+            html = html.replace(regex, (match, p1, offset, string) => {
+              // Controleer of dit deel al in een span zit
+              const before = string.substring(0, offset);
+              const after = string.substring(offset + match.length);
+              
+              // Als het niet in een tag zit, markeer het
+              if (!before.includes('<span') || (before.includes('<span') && before.includes('</span>'))) {
+                return `<strong>${match}</strong>`;
+              }
+              return match;
+            });
           }
         });
       }
