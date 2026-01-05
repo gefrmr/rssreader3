@@ -1,30 +1,73 @@
 export default async function handler(req, res) {
-  const { sentence, sentences, target = "pt-BR" } = req.query;
+  const { sentence, sentences, target = "pt-BR", skipGrammar = "false" } = req.query;
+  
+  if (!sentence && !sentences) {
+    return res.status(400).json({ error: "No input" });
+  }
 
-  // 1) Normaliseer input
   let items = [];
-
-  if (sentence) {
-    items = [sentence];
-  } else if (sentences) {
+  if (sentences) {
     try {
       items = JSON.parse(sentences);
-      if (!Array.isArray(items)) throw new Error("sentences must be an array");
-    } catch (e) {
-      return res.status(400).json({ error: "Invalid sentences array" });
+      if (!Array.isArray(items) || items.length === 0) {
+        return res.status(200).json({ count: 0, translations: [] });
+      }
+    } catch {
+      return res.status(400).json({ error: "Invalid JSON" });
     }
-  } else {
-    return res.status(400).json({ error: "No sentence(s) provided" });
+  } else if (sentence) {
+    items = [sentence];
+  }
+
+  const skipGrammarAnalysis = skipGrammar === "true" || items.length > 20;
+  
+  if (skipGrammarAnalysis) {
+    try {
+      const quickPrompt = `Vertaal deze ${items.length} zinnen naar Portugees (Brazilië) als JSON array: ${JSON.stringify(items.slice(0, 30))}`;
+      
+      const response = await fetch("https://api.deepseek.com/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${process.env.DEEPSEEK_API_KEY}`
+        },
+        body: JSON.stringify({
+          model: "deepseek-chat",
+          messages: [
+            { role: "system", content: "Geef alleen een JSON array met vertalingen." },
+            { role: "user", content: quickPrompt }
+          ],
+          temperature: 0.1,
+          max_tokens: 2000
+        })
+      });
+
+      const data = await response.json();
+      const raw = data?.choices?.[0]?.message?.content || "[]";
+      const jsonMatch = raw.match(/\[.*\]/s);
+      const translations = jsonMatch ? JSON.parse(jsonMatch[0]) : items;
+      
+      return res.status(200).json({
+        count: translations.length,
+        translations: translations,
+        skippedGrammar: true
+      });
+    } catch (error) {
+      return res.status(200).json({
+        count: items.length,
+        translations: items,
+        error: "Translation failed"
+      });
+    }
   }
 
   try {
-    const apiKey = process.env.DEEPSEEK_API_KEY;
-
-    // 2) Verbeterde prompt voor vertaling EN grammaticale analyse
+    const itemsToAnalyze = items.slice(0, 15);
+    
     const prompt = `
 Je bent een expert in Portugese grammatica en vertaling. Je taak heeft drie delen:
 
-1. Vertaal de volgende zinnen naar ${target} (Portugees Brazilië)
+1. Vertaal de volgende zinnen naar Portugees (Brazilië)
 2. Analyseer elke vertaalde zin en identificeer:
    a) ALLE werkwoorden (hoofdwerkwoorden, hulpwerkwoorden, koppelwerkwoorden, infinitieven)
    b) ALLE zelfstandige naamwoorden (inclusief samengestelde zoals "carteira de motorista")
@@ -38,155 +81,271 @@ Je bent een expert in Portugese grammatica en vertaling. Je taak heeft drie dele
   }
 ]
 
-SPECIFIEKE REGELS:
-- Werkwoorden: markeer in <strong>vet</strong> in de vertaling (alleen vet, geen achtergrondkleur)
-- Zelfstandige naamwoorden: markeer in <span style="color:darkred">donkerrood</span> in de vertaling (alleen kleur, geen onderstreping)
-- Samengestelde zelfstandige naamwoorden: markeer het GEHELE samengestelde woord (bijv. "carteira de motorista" als één item)
-- EIGENNAMEN: Negeer eigennamen (namen van personen, plaatsen, merken, bedrijven) als zelfstandige naamwoorden
-- Overlapping: als een woord zowel werkwoord als zelfstandig naamwoord kan zijn, volg de context
-- Behoud de originele interpunctie en hoofdletters in de vertaling
+BELANGRIJKE SPECIFICATIES:
+
+1. WERKWOORDEN:
+   - Markeer met <strong> tags (alleen vet, geen achtergrond)
+
+2. ZELFSTANDIGE NAAMWOORDEN:
+   - Markeer met <span style="color:darkred"> tags (alleen kleur, geen onderstreping)
+
+3. REGELS VOOR ZELFSTANDIGE NAAMWOORDEN:
+   - MARKEREN: Gewone zelfstandige naamwoorden zonder hoofdletter
+     Voorbeelden: "casa", "carro", "presidente", "doutor", "professor", "carteira de motorista"
+   
+   - NEGEREN (NIET MARKEREN):
+     * Eigennamen: "Maria", "João", "Silva", "Trump", "Biden"
+     * Plaatsnamen: "Brazilië", "São Paulo", "Rio de Janeiro", "Europa", "Lisboa"
+     * Merken/bedrijven: "Google", "Microsoft", "Apple"
+     * Historische gebeurtenissen met hoofdletters: "Segunda Guerra Mundial"
+     * Woorden die met een hoofdletter beginnen (behalve aan het begin van de zin)
+
+4. SPECIALE GEVALLEN VOOR TITELS:
+   - "presidente Trump" → "presidente" WEL markeren (titel zonder hoofdletter), "Trump" NIET markeren
+   - "doutor Silva" → "doutor" WEL markeren, "Silva" NIET markeren  
+   - "Professor Carlos" → "Professor" NIET markeren (want met hoofdletter), "Carlos" NIET markeren
+   - "o presidente do Brasil" → "presidente" WEL markeren, "Brasil" NIET markeren (plaatsnaam)
+
+5. CONTEXTBEPALING:
+   - "O presidente falou" → "presidente" is zelfstandig naamwoord? JA (markeren)
+   - "Ele preside a reunião" → "preside" is werkwoord? JA (markeren met <strong>)
+   - "Rio é lindo" → "Rio" is zelfstandig naamwoord? NEE (plaatsnaam, niet markeren)
+   - "Ele cruzou o rio" → "rio" is zelfstandig naamwoord? JA (geen hoofdletter, markeren)
+
+6. OUTPUT FORMAAT:
+   - Voeg HTML tags direct toe in de "translation" veld
+   - Behoud interpunctie en hoofdletters van de vertaling
 
 Hier zijn de zinnen om te vertalen en analyseren:
 
-${items.map((s, i) => `${i + 1}. ${s}`).join("\n")}
+${itemsToAnalyze.map((s, i) => `${i + 1}. ${s}`).join("\n")}
     `.trim();
 
-    // 3) DeepSeek API-call
     const response = await fetch("https://api.deepseek.com/v1/chat/completions", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "Authorization": `Bearer ${apiKey}`
+        "Authorization": `Bearer ${process.env.DEEPSEEK_API_KEY}`
       },
       body: JSON.stringify({
         model: "deepseek-chat",
         messages: [
           { 
             role: "system", 
-            content: `Je bent een precieze grammaticale analyzer. Geef ALTIJD geldige JSON output volgens de specificaties.
-            BELANGRIJK: Negeer eigennamen (zoals "Maria", "Rio de Janeiro", "Google") bij het identificeren van zelfstandige naamwoorden.
-            Werkwoorden: markeer met <strong> tags.
-            Zelfstandige naamwoorden: markeer met <span style="color:darkred"> tags.` 
+            content: `Je bent een precieze grammaticale analyzer die onderscheid maakt tussen gewone zelfstandige naamwoorden en eigennamen.
+
+KRITISCHE REGELS VOOR ZELFSTANDIGE NAAMWOORDEN:
+1. MARKEREN: Gewone zelfstandige naamwoorden ZONDER hoofdletter (ook titels zoals "presidente", "doutor")
+2. NEGEREN: Woorden MET hoofdletter (eigennamen, plaatsnamen, merken)
+3. MARKEREN: Samengestelde zelfstandige naamwoorden zonder hoofdletters ("carteira de motorista")
+4. NEGEREN: Historische gebeurtenissen met hoofdletters ("Segunda Guerra Mundial")
+5. TITELS: "presidente" (zonder hoofdletter) → MARKEREN, "Presidente" (met hoofdletter) → NEGEREN
+
+Voor werkwoorden: gebruik <strong> tags.
+Voor zelfstandige naamwoorden: gebruik <span style="color:darkred"> tags.
+
+Output ALTIJD geldige JSON volgens het gevraagde formaat.`
           },
           { role: "user", content: prompt }
         ],
-        temperature: 0.1, // Lage temperature voor consistente output
-        max_tokens: 4000  // Meer tokens voor complexe analyses
+        temperature: 0.1,
+        max_tokens: 4000
       })
     });
 
     const data = await response.json();
-    console.log("DeepSeek enhanced response:", JSON.stringify(data, null, 2));
+    console.log("DeepSeek response received");
 
     const raw = data?.choices?.[0]?.message?.content || "[]";
-
-    // 4) JSON uit de AI halen en verwerken
-    const jsonStart = raw.indexOf("[");
-    const jsonEnd = raw.lastIndexOf("]") + 1;
-    const jsonText = raw.slice(jsonStart, jsonEnd);
-
-    let parsedResults;
+    
+    let jsonText;
     try {
-      parsedResults = JSON.parse(jsonText);
-    } catch (e) {
-      console.error("Failed to parse AI JSON:", jsonText);
-      // Fallback: gewone vertaling zonder markup
-      parsedResults = items.map(text => ({
-        translation: text,
-        verbs: [],
-        nouns: []
-      }));
-    }
-
-    // 5) HTML markup toepassen op de vertalingen - VEREENVOUDIGDE VERSIE
-    const enhancedTranslations = parsedResults.map(result => {
-      let html = result.translation || "";
+      jsonText = raw;
       
-      // Eerst zelfstandige naamwoorden markeren (van lang naar kort om overlap te voorkomen)
-      if (result.nouns && Array.isArray(result.nouns)) {
-        // Sorteer op lengte (langste eerst) voor samengestelde naamwoorden
-        const sortedNouns = [...result.nouns].sort((a, b) => b.length - a.length);
-        sortedNouns.forEach(noun => {
-          if (noun && noun.trim()) {
-            // Escapen voor regex
-            const escapedNoun = noun.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-            // Woordgrenzen gebruiken, case-insensitive
-            const regex = new RegExp(`\\b${escapedNoun}\\b`, 'gi');
-            html = html.replace(regex, `<span style="color:darkred">$&</span>`);
-          }
-        });
+      // Verbeterde JSON extractie
+      const jsonMatch = raw.match(/\[\s*\{[\s\S]*\}\s*\]/);
+      if (jsonMatch) {
+        jsonText = jsonMatch[0];
       }
       
-      // Dan werkwoorden markeren
-      if (result.verbs && Array.isArray(result.verbs)) {
-        // Sorteer op lengte (langste eerst)
-        const sortedVerbs = [...result.verbs].sort((a, b) => b.length - a.length);
-        sortedVerbs.forEach(verb => {
-          if (verb && verb.trim()) {
-            const escapedVerb = verb.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-            // Eenvoudigere regex zonder complexe lookbehind (werkt beter cross-browser)
-            // Vervang alleen als het niet al gemarkeerd is
-            const regex = new RegExp(`(?!<[^>]*?)(${escapedVerb})(?![^<]*?>)`, 'gi');
-            html = html.replace(regex, (match, p1, offset, string) => {
-              // Controleer of dit deel al in een span zit
-              const before = string.substring(0, offset);
-              const after = string.substring(offset + match.length);
-              
-              // Als het niet in een tag zit, markeer het
-              if (!before.includes('<span') || (before.includes('<span') && before.includes('</span>'))) {
-                return `<strong>${match}</strong>`;
+      // Clean up common JSON issues
+      jsonText = jsonText
+        .replace(/[“”]/g, '"')
+        .replace(/'/g, '"')
+        .replace(/,\s*]/g, ']')  // Remove trailing commas
+        .replace(/,\s*}/g, '}'); // Remove trailing commas in objects
+      
+      const parsedResults = JSON.parse(jsonText);
+      
+      if (!Array.isArray(parsedResults)) {
+        throw new Error("Result is not an array");
+      }
+      
+      // Post-process: filter hoofdletterwoorden maar behoud titels zonder hoofdletter
+      const processedResults = parsedResults.map(result => {
+        if (!result.nouns || !Array.isArray(result.nouns)) {
+          return result;
+        }
+        
+        // Filter logica voor zelfstandige naamwoorden
+        const filteredNouns = result.nouns.filter(noun => {
+          if (!noun || typeof noun !== 'string') return false;
+          
+          // Split samengestelde zelfstandige naamwoorden
+          const words = noun.split(/\s+/);
+          
+          // Voor samengestelde zelfstandige naamwoorden:
+          if (words.length > 1) {
+            // Voor "carteira de motorista" - alle woorden moeten zonder hoofdletter zijn
+            const allLowerCase = words.every(word => {
+              if (word.length === 0) return true;
+              // Negeer stopwoorden zoals "de", "do", "da"
+              const stopWords = ['de', 'do', 'da', 'dos', 'das', 'e'];
+              if (stopWords.includes(word.toLowerCase())) {
+                return true;
               }
-              return match;
+              return !/^[A-ZÀ-Ü]/.test(word);
             });
+            return allLowerCase;
           }
+          
+          // Voor enkele zelfstandige naamwoorden:
+          // Laat titels zonder hoofdletter DOOR ("presidente", "doutor")
+          // Maar blokkeer eigennamen met hoofdletter ("Trump", "São Paulo")
+          
+          // Lijst van veelvoorkomende titels die we WEL willen markeren
+          const commonTitles = [
+            'presidente', 'presidenta', 'doutor', 'doutora', 'professor', 'professora',
+            'senhor', 'senhora', 'senhorita', 'diretor', 'diretora', 'ministro', 'ministra',
+            'prefeito', 'prefeita', 'vereador', 'vereadora', 'deputado', 'deputada',
+            'secretário', 'secretária', 'governador', 'governadora', 'rei', 'rainha',
+            'príncipe', 'princesa', 'embaixador', 'embaixadora'
+          ];
+          
+          const lowerNoun = noun.toLowerCase();
+          
+          // Als het een veelvoorkomende titel is ZONDER hoofdletter, markeer het
+          if (commonTitles.includes(lowerNoun) && !/^[A-ZÀ-Ü]/.test(noun)) {
+            return true;
+          }
+          
+          // Voor andere woorden: alleen markeren als ze zonder hoofdletter beginnen
+          return !/^[A-ZÀ-Ü]/.test(noun);
         });
-      }
+        
+        return {
+          ...result,
+          nouns: filteredNouns,
+          // Debug info
+          originalNouns: result.nouns,
+          filteredOut: result.nouns.filter(noun => !filteredNouns.includes(noun))
+        };
+      });
       
-      return html;
-    });
+      // HTML markup toepassen
+      const enhancedTranslations = processedResults.map(result => {
+        let html = result.translation || "";
+        
+        // Debug logging
+        if (result.filteredOut && result.filteredOut.length > 0) {
+          console.log(`Filtered out: ${result.filteredOut.join(', ')}`);
+        }
+        
+        // Eerst zelfstandige naamwoorden markeren (van lang naar kort)
+        if (result.nouns && result.nouns.length > 0) {
+          const sortedNouns = [...result.nouns].sort((a, b) => b.length - a.length);
+          
+          sortedNouns.forEach(noun => {
+            if (noun && noun.trim()) {
+              // Escapen voor regex
+              const escaped = noun.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+              
+              // Voor samengestelde zelfstandige naamwoorden, gebruik exacte match
+              if (noun.includes(' ')) {
+                const exactRegex = new RegExp(`\\b${escaped}\\b`, 'gi');
+                html = html.replace(exactRegex, match => {
+                  // Controleer of niet al in een tag
+                  const position = html.indexOf(match);
+                  const before = html.substring(0, position);
+                  const after = html.substring(position + match.length);
+                  
+                  const lastTagOpen = before.lastIndexOf('<');
+                  const lastTagClose = before.lastIndexOf('>');
+                  
+                  if (lastTagOpen > lastTagClose) {
+                    // Binnen een tag
+                    return match;
+                  }
+                  
+                  return `<span style="color:darkred">${match}</span>`;
+                });
+              } else {
+                // Voor enkele woorden, woordgrenzen gebruiken
+                const regex = new RegExp(`\\b${escaped}\\b`, 'gi');
+                html = html.replace(regex, match => {
+                  // Alleen vervangen als het exacte woord (case-insensitive)
+                  if (match.toLowerCase() === noun.toLowerCase()) {
+                    return `<span style="color:darkred">${match}</span>`;
+                  }
+                  return match;
+                });
+              }
+            }
+          });
+        }
+        
+        // Dan werkwoorden markeren
+        if (result.verbs && result.verbs.length > 0) {
+          const sortedVerbs = [...result.verbs].sort((a, b) => b.length - a.length);
+          
+          sortedVerbs.forEach(verb => {
+            if (verb && verb.trim()) {
+              const escaped = verb.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+              const regex = new RegExp(`\\b${escaped}\\b`, 'gi');
+              
+              html = html.replace(regex, match => {
+                // Controleer of niet al gemarkeerd
+                if (!html.includes(`>${match}<`) && 
+                    !match.startsWith('<') && 
+                    !match.endsWith('>')) {
+                  return `<strong>${match}</strong>`;
+                }
+                return match;
+              });
+            }
+          });
+        }
+        
+        return html;
+      });
 
-    // 6) Response met zowel platte tekst als gemarkeerde HTML
-    res.status(200).json({
-      count: enhancedTranslations.length,
-      translations: enhancedTranslations,
-      rawAnalysis: parsedResults // Voor debugging
-    });
+      res.status(200).json({
+        count: enhancedTranslations.length,
+        translations: enhancedTranslations,
+        rawAnalysis: processedResults
+      });
+
+    } catch (parseError) {
+      console.error("JSON parse error:", parseError.message);
+      console.error("Raw content sample:", raw.substring(0, 300));
+      
+      // Fallback zonder grammatica markering
+      const fallbackTranslations = itemsToAnalyze.map(text => text);
+      res.status(200).json({
+        count: fallbackTranslations.length,
+        translations: fallbackTranslations,
+        warning: "Parse error, returning text without grammar markup"
+      });
+    }
 
   } catch (err) {
     console.error("Enhanced vertaalfout:", err);
     
-    // Fallback: probeer normale vertaling zonder markup
-    try {
-      const fallbackPrompt = `Vertaal deze zinnen naar ${target} als JSON array: ${JSON.stringify(items)}`;
-      const fallbackResponse = await fetch("https://api.deepseek.com/v1/chat/completions", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${process.env.DEEPSEEK_API_KEY}`
-        },
-        body: JSON.stringify({
-          model: "deepseek-chat",
-          messages: [
-            { role: "system", content: "Je bent een vertaalmachine. Output ALLEEN geldige JSON." },
-            { role: "user", content: fallbackPrompt }
-          ]
-        })
-      });
-      
-      const fallbackData = await fallbackResponse.json();
-      const raw = fallbackData?.choices?.[0]?.message?.content || "[]";
-      const jsonStart = raw.indexOf("[");
-      const jsonEnd = raw.lastIndexOf("]") + 1;
-      const jsonText = raw.slice(jsonStart, jsonEnd);
-      const fallbackTranslations = JSON.parse(jsonText);
-      
-      res.status(200).json({
-        count: fallbackTranslations.length,
-        translations: fallbackTranslations,
-        warning: "Fallback translation without grammatical markup"
-      });
-    } catch (fallbackErr) {
-      res.status(500).json({ error: "Enhanced vertaalfout met fallback failure" });
-    }
+    // Ultimate fallback
+    res.status(200).json({
+      count: items.length,
+      translations: items.slice(0, 15),
+      error: "Translation service unavailable"
+    });
   }
 }
