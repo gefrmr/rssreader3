@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>RSS Reader – Optimal Performance</title>
+<title>RSS Reader – Fixed Translation Edition</title>
 
 <style>
   body { font-family: Arial, sans-serif; margin: 0; padding: 0; background: #f5f5f5; }
@@ -54,18 +54,19 @@
     padding: 2px 4px;
     border-radius: 3px;
     min-height: 24px;
-    position: relative;
   }
 
   .translation-line.loading {
-    color: transparent;
-    background: linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%);
-    background-size: 200% 100%;
-    animation: loading 1.5s infinite;
-    width: 80%;
+    color: #999;
+    font-style: normal;
   }
 
-  .translation-line:hover:not(.loading) {
+  .translation-line.error {
+    color: #cc0000;
+    font-style: normal;
+  }
+
+  .translation-line:hover:not(.loading):not(.error) {
     background-color: #f0f0f0;
   }
 
@@ -84,26 +85,23 @@
     color: #8b0000 !important;
   }
 
-  /* Loading overlay */
-  #loadingOverlay {
+  /* Debug info */
+  .debug-panel {
+    background: #f8f9fa;
+    border: 1px solid #dee2e6;
+    border-radius: 6px;
+    padding: 10px;
+    margin: 10px 0;
+    font-size: 12px;
     display: none;
-    position: fixed;
-    top: 0; left: 0; right: 0; bottom: 0;
-    background: rgba(255, 255, 255, 0.9);
-    z-index: 1000;
-    justify-content: center;
-    align-items: center;
-    flex-direction: column;
   }
 
-  .spinner {
-    width: 40px;
-    height: 40px;
-    border: 4px solid #f3f3f3;
-    border-top: 4px solid #0078ff;
-    border-radius: 50%;
-    animation: spin 1s linear infinite;
-    margin-bottom: 15px;
+  .debug-toggle {
+    font-size: 11px;
+    color: #666;
+    cursor: pointer;
+    user-select: none;
+    margin-left: 10px;
   }
 
   .toggle-row { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
@@ -138,25 +136,27 @@
   }
 
   @keyframes fadeIn { to { opacity: 1; } }
-  @keyframes loading {
-    0% { background-position: 200% 0; }
-    100% { background-position: -200% 0; }
-  }
-  @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
 </style>
 </head>
 <body>
 
-<div id="loadingOverlay">
-  <div class="spinner"></div>
-  <div id="loadingText">Vertaling laden...</div>
-</div>
-
 <div class="container">
 
   <div class="nav-bar">
-    <div><strong>Reader</strong><span id="syncStatus"></span></div>
+    <div>
+      <strong>Reader</strong><span id="syncStatus"></span>
+      <span class="debug-toggle" onclick="toggleDebug()">🔍 Debug</span>
+    </div>
     <a href="woorden.html">Instellingen ⚙️</a>
+  </div>
+
+  <!-- DEBUG PANEL -->
+  <div id="debugPanel" class="debug-panel">
+    <strong>Debug Info:</strong>
+    <div id="debugInfo">Geen activiteit</div>
+    <button onclick="testTranslation()" style="margin-top: 5px; padding: 5px 10px; font-size: 11px;">
+      Test Translation API
+    </button>
   </div>
 
   <div class="toggle-row">
@@ -190,66 +190,111 @@ let items = [];
 let currentIndex = 0;
 let currentArticleData = null;
 
-/* ========= TRANSLATION CACHE ========= */
-const TRANSLATION_CACHE = new Map();
-const CACHE_PREFIX = 'translation_';
+/* ========= DEBUG FUNCTIONS ========= */
 
-function getCacheKey(sentences, targetLang) {
-  // Maak een eenvoudige hash van de zinnen
-  const text = sentences.join('|') + '|' + targetLang;
-  let hash = 0;
-  for (let i = 0; i < text.length; i++) {
-    const char = text.charCodeAt(i);
-    hash = ((hash << 5) - hash) + char;
-    hash = hash & hash;
-  }
-  return CACHE_PREFIX + hash;
+function updateDebugInfo(message) {
+  const debugInfo = document.getElementById('debugInfo');
+  const now = new Date().toLocaleTimeString();
+  debugInfo.innerHTML = `[${now}] ${message}<br>` + debugInfo.innerHTML;
 }
 
-function getCachedTranslation(sentences, targetLang) {
-  const key = getCacheKey(sentences, targetLang);
-  
-  // Check memory cache first
-  if (TRANSLATION_CACHE.has(key)) {
-    console.log('[Cache] Memory hit:', key);
-    return TRANSLATION_CACHE.get(key);
-  }
-  
-  // Check localStorage
-  const cached = localStorage.getItem(key);
-  if (cached) {
-    try {
-      const parsed = JSON.parse(cached);
-      TRANSLATION_CACHE.set(key, parsed);
-      console.log('[Cache] LocalStorage hit:', key);
-      return parsed;
-    } catch (e) {
-      localStorage.removeItem(key);
-    }
-  }
-  
-  return null;
+function toggleDebug() {
+  const panel = document.getElementById('debugPanel');
+  panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
 }
 
-function cacheTranslation(sentences, targetLang, translations) {
-  const key = getCacheKey(sentences, targetLang);
-  TRANSLATION_CACHE.set(key, translations);
+async function testTranslation() {
+  console.log('=== TESTING TRANSLATION API ===');
+  updateDebugInfo('Starting translation test...');
   
-  // Store in localStorage (max 100 items)
+  const testSentences = [
+    "Hello, how are you?",
+    "The weather is beautiful today.",
+    "I am learning Portuguese."
+  ];
+  
   try {
-    localStorage.setItem(key, JSON.stringify(translations));
+    const url = `/api/translate?sentences=${encodeURIComponent(JSON.stringify(testSentences))}&target=pt-BR`;
+    updateDebugInfo(`Fetching: ${url.substring(0, 80)}...`);
     
-    // Clean up old cache items
-    const cacheKeys = Object.keys(localStorage)
-      .filter(k => k.startsWith(CACHE_PREFIX));
+    const response = await fetch(url);
+    updateDebugInfo(`Response status: ${response.status}`);
     
-    if (cacheKeys.length > 100) {
-      const oldestKey = cacheKeys[0];
-      localStorage.removeItem(oldestKey);
+    const data = await response.json();
+    console.log('API Response:', data);
+    updateDebugInfo(`Got response with ${data.translations ? data.translations.length : 0} translations`);
+    
+    if (data.translations) {
+      data.translations.forEach((trans, i) => {
+        const isPortuguese = validatePortugueseTranslation(trans);
+        console.log(`Translation ${i + 1}: ${isPortuguese ? '✅ Portuguese' : '❌ NOT Portuguese'}`);
+        console.log(`  Original: "${testSentences[i]}"`);
+        console.log(`  Translation: "${trans}"`);
+        
+        updateDebugInfo(`Trans ${i + 1}: ${isPortuguese ? '✅' : '❌'} "${trans.substring(0, 50)}..."`);
+      });
     }
-  } catch (e) {
-    console.warn('[Cache] LocalStorage full or not available');
+    
+  } catch (error) {
+    console.error('Test failed:', error);
+    updateDebugInfo(`Error: ${error.message}`);
   }
+}
+
+/* ========= TRANSLATION VALIDATION ========= */
+
+function validatePortugueseTranslation(text) {
+  if (!text || typeof text !== 'string') return false;
+  
+  // Remove HTML tags for validation
+  const cleanText = text.replace(/<[^>]*>/g, '');
+  if (cleanText.length === 0) return false;
+  
+  // Check for Portuguese-specific characters
+  const portugueseChars = /[áàâãéèêíìîóòôõúùûçñ]/i;
+  const hasPortugueseChars = portugueseChars.test(cleanText);
+  
+  // Common Portuguese words that are unlikely in Dutch
+  const portugueseWords = [
+    'é', 'está', 'estão', 'foi', 'foram', 'tem', 'têm', 'há',
+    'que', 'como', 'para', 'com', 'não', 'sim', 'ou', 'e',
+    'o', 'a', 'os', 'as', 'um', 'uma', 'uns', 'umas',
+    'do', 'da', 'dos', 'das', 'no', 'na', 'nos', 'nas',
+    'meu', 'minha', 'teu', 'tua', 'seu', 'sua', 'nosso', 'nossa',
+    'você', 'vocês', 'nós', 'eles', 'elas'
+  ];
+  
+  const lowerText = cleanText.toLowerCase();
+  
+  // Check for Portuguese words
+  let portugueseWordCount = 0;
+  portugueseWords.forEach(word => {
+    if (new RegExp(`\\b${word}\\b`).test(lowerText)) {
+      portugueseWordCount++;
+    }
+  });
+  
+  // Check for Dutch words that shouldn't be in Portuguese
+  const dutchWords = ['de', 'het', 'een', 'en', 'van', 'ik', 'je', 'dat', 'niet', 'is', 'wat'];
+  let dutchWordCount = 0;
+  dutchWords.forEach(word => {
+    if (new RegExp(`\\b${word}\\b`).test(lowerText)) {
+      dutchWordCount++;
+    }
+  });
+  
+  // Debug info
+  console.log(`Validation: "${cleanText.substring(0, 50)}..."`);
+  console.log(`  Portuguese chars: ${hasPortugueseChars}`);
+  console.log(`  Portuguese words: ${portugueseWordCount}`);
+  console.log(`  Dutch words: ${dutchWordCount}`);
+  
+  // Validation logic
+  if (hasPortugueseChars) return true;
+  if (portugueseWordCount > 1) return true;
+  if (dutchWordCount > 2 && !hasPortugueseChars) return false;
+  
+  return false; // Default to not Portuguese
 }
 
 /* ========= OPTIMIZED BATCH TRANSLATION ========= */
@@ -257,31 +302,28 @@ function cacheTranslation(sentences, targetLang, translations) {
 async function translateSentencesBatch(sentences, targetLang = "pt-BR") {
   if (sentences.length === 0) return [];
   
-  console.log(`[Translate] Batch van ${sentences.length} zinnen`);
-  
-  // Check cache first
-  const cached = getCachedTranslation(sentences, targetLang);
-  if (cached) {
-    console.log('[Translate] Using cached translation');
-    return cached;
-  }
+  updateDebugInfo(`Translating batch of ${sentences.length} sentences`);
+  console.log(`[Translate] Batch: ${sentences.length} sentences`);
   
   try {
     // Use the efficient batch API
     const url = `/api/translate?sentences=${encodeURIComponent(JSON.stringify(sentences))}&target=${targetLang}`;
     
-    // Set timeout for API call
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 30000);
+    updateDebugInfo(`Calling API...`);
+    console.log(`[Translate] API URL: ${url.substring(0, 100)}...`);
     
-    const response = await fetch(url, { signal: controller.signal });
-    clearTimeout(timeoutId);
+    const response = await fetch(url);
     
     if (!response.ok) {
+      const errorText = await response.text();
+      console.error(`[Translate] API error ${response.status}:`, errorText);
+      updateDebugInfo(`API error ${response.status}`);
       throw new Error(`API error: ${response.status}`);
     }
     
     const data = await response.json();
+    console.log('[Translate] API response:', data);
+    updateDebugInfo(`Got API response`);
     
     let translations = [];
     if (data.translations && Array.isArray(data.translations)) {
@@ -289,29 +331,51 @@ async function translateSentencesBatch(sentences, targetLang = "pt-BR") {
     } else if (Array.isArray(data)) {
       translations = data;
     } else {
-      console.warn('Unexpected response format, falling back to original');
-      translations = sentences;
+      console.warn('[Translate] Unexpected response format:', data);
+      updateDebugInfo('Unexpected response format');
+      // Fallback with error indication
+      return sentences.map(s => `<span class="error">[TRANSLATION ERROR] ${s}</span>`);
     }
     
-    // Validate we got Portuguese translations
-    if (translations.length > 0) {
-      const sample = translations[0] || '';
-      const hasPortugueseChars = /[áàâãéèêíìîóòôõúùûçñ]/i.test(sample);
+    // VALIDATE EACH TRANSLATION
+    const validatedTranslations = [];
+    let validCount = 0;
+    
+    for (let i = 0; i < translations.length; i++) {
+      const translation = translations[i];
+      const original = sentences[i];
       
-      if (!hasPortugueseChars && sample === sentences[0]) {
-        console.warn('[Translate] Translation seems to have failed');
+      const isPortuguese = validatePortugueseTranslation(translation);
+      const isSameAsOriginal = translation === original;
+      
+      console.log(`[Translate] Sentence ${i + 1}:`);
+      console.log(`  Original: "${original}"`);
+      console.log(`  Translation: "${translation}"`);
+      console.log(`  Is Portuguese: ${isPortuguese}`);
+      console.log(`  Same as original: ${isSameAsOriginal}`);
+      
+      if (!isPortuguese || isSameAsOriginal) {
+        // Translation failed
+        console.warn(`[Translate] Translation ${i + 1} failed validation`);
+        validatedTranslations.push(`<span class="error">[VERTALING MISLUKT] ${original}</span>`);
+        updateDebugInfo(`Translation ${i + 1} failed validation`);
       } else {
-        // Cache successful translation
-        cacheTranslation(sentences, targetLang, translations);
+        validatedTranslations.push(translation);
+        validCount++;
       }
     }
     
-    console.log(`[Translate] Successfully translated ${translations.length} sentences`);
-    return translations;
+    updateDebugInfo(`Validated: ${validCount}/${sentences.length} successful`);
+    console.log(`[Translate] Valid translations: ${validCount}/${sentences.length}`);
+    
+    return validatedTranslations;
     
   } catch (error) {
     console.error('[Translate] Error:', error);
-    return sentences; // Fallback to original
+    updateDebugInfo(`Translation error: ${error.message}`);
+    
+    // Fallback with error indication
+    return sentences.map(s => `<span class="error">[API ERROR] ${s}</span>`);
   }
 }
 
@@ -354,17 +418,17 @@ function speakTranslation() {
   if (isSpeaking) return;
 
   const article = document.getElementById("article");
-  lines = [...article.querySelectorAll(".translation-line:not(.loading)")].map(el => {
+  lines = [...article.querySelectorAll(".translation-line:not(.loading):not(.error)")].map(el => {
     const temp = document.createElement('div');
     temp.innerHTML = el.innerHTML;
-    temp.querySelectorAll('strong, .noun').forEach(tag => {
+    temp.querySelectorAll('strong, .noun, .error').forEach(tag => {
       tag.replaceWith(tag.textContent);
     });
     return temp.textContent.trim();
-  }).filter(text => text.length > 0);
+  }).filter(text => text.length > 0 && !text.startsWith('[VERTALING MISLUKT]') && !text.startsWith('[API ERROR]'));
 
   if (lines.length === 0) {
-    alert("Geen vertaalde zinnen om voor te lezen");
+    alert("Geen geldige vertaalde zinnen om voor te lezen");
     return;
   }
 
@@ -392,7 +456,7 @@ function speakTranslation() {
     currentUtterance.onend = () => {
       if (!isPaused) {
         currentLineIndex++;
-        setTimeout(speakNext, 300);
+        speakNext();
       }
     };
 
@@ -425,7 +489,7 @@ function playSingleLine(i) {
   stopSpeaking();
   const voice = getBrazilianVoice();
   const el = document.querySelector(`.translation-line[data-index="${i}"]`);
-  if (!el || el.classList.contains('loading')) return;
+  if (!el || el.classList.contains('loading') || el.classList.contains('error')) return;
 
   document.querySelectorAll(".translation-line").forEach(x => x.classList.remove("active-line"));
   el.classList.add("active-line");
@@ -447,7 +511,7 @@ function playSingleLine(i) {
   speechSynthesis.speak(u);
 }
 
-/* ========= SENTENCE PROCESSING ========= */
+/* ========= ARTICLE PROCESSING ========= */
 
 function splitIntoSentences(text) {
   return text
@@ -461,107 +525,77 @@ async function translateArticleContent(html, targetLang = "pt-BR") {
   const temp = document.createElement("div");
   temp.innerHTML = html;
   
-  // Extract all text content
   const text = temp.textContent || temp.innerText || "";
   const sentences = splitIntoSentences(text);
   
   if (sentences.length === 0) {
-    return html;
+    return '<p>Geen tekst gevonden in artikel.</p>';
   }
   
-  console.log(`[Process] Found ${sentences.length} sentences`);
+  updateDebugInfo(`Processing article with ${sentences.length} sentences`);
   
-  // Show loading overlay for large articles
-  if (sentences.length > 20) {
-    showLoadingOverlay(`Vertaling starten (${sentences.length} zinnen)`);
-  }
-  
-  // OPTIMIZATION: Process in optimal batches
-  const OPTIMAL_BATCH_SIZE = 15; // Best balance for API efficiency
+  // Process in optimal batches
+  const BATCH_SIZE = 10;
   const allTranslations = [];
   
-  // Process in parallel batches for maximum speed
-  const batchPromises = [];
-  
-  for (let i = 0; i < sentences.length; i += OPTIMAL_BATCH_SIZE) {
-    const batch = sentences.slice(i, Math.min(i + OPTIMAL_BATCH_SIZE, sentences.length));
+  for (let i = 0; i < sentences.length; i += BATCH_SIZE) {
+    const batch = sentences.slice(i, Math.min(i + BATCH_SIZE, sentences.length));
+    updateDebugInfo(`Translating batch ${Math.floor(i/BATCH_SIZE) + 1} (${batch.length} sentences)`);
     
-    batchPromises.push(
-      translateSentencesBatch(batch, targetLang).then(translations => {
-        // Update loading text
-        if (sentences.length > 20) {
-          const progress = Math.round(((i + translations.length) / sentences.length) * 100);
-          updateLoadingText(`Vertaling: ${progress}% (${i + translations.length}/${sentences.length})`);
-        }
-        return { startIdx: i, translations };
-      })
-    );
+    const translations = await translateSentencesBatch(batch, targetLang);
+    allTranslations.push(...translations);
   }
   
-  // Wait for all batches
-  const batchResults = await Promise.all(batchPromises);
-  
-  // Combine results in correct order
-  batchResults.sort((a, b) => a.startIdx - b.startIdx);
-  batchResults.forEach(result => {
-    allTranslations.push(...result.translations);
-  });
-  
-  // Hide loading overlay
-  hideLoadingOverlay();
-  
-  // Build the HTML with translations
+  // Build the HTML
   let outputHTML = '';
   const grammarEnabled = document.getElementById("toggleGrammar").checked;
   
   sentences.forEach((sentence, index) => {
     let translationHTML = allTranslations[index] || "";
     
-    // Apply grammar markup if enabled
-    if (grammarEnabled && translationHTML) {
-      translationHTML = translationHTML
-        .replace(/<span style="color:darkred">/g, '<span class="noun">')
-        .replace(/<span style="color: darkred">/g, '<span class="noun">');
-    } else if (!grammarEnabled && translationHTML) {
-      // Remove markup if grammar disabled
-      translationHTML = translationHTML
-        .replace(/<strong>/g, '')
-        .replace(/<\/strong>/g, '')
-        .replace(/<span[^>]*>/g, '')
-        .replace(/<\/span>/g, '');
-    }
+    // Check if translation failed
+    const isError = translationHTML.includes('class="error"') || 
+                    translationHTML.includes('[VERTALING MISLUKT]') ||
+                    translationHTML.includes('[API ERROR]');
     
-    outputHTML += `
-      <div class="translation-group">
-        <span class="translation-original">${sentence}</span>
-        <br>
-        <span class="translation-line" data-index="${index}" onclick="playSingleLine(${index})">
-          ${translationHTML || '<em>Vertaling niet beschikbaar</em>'}
-        </span>
-      </div>
-    `;
+    if (isError) {
+      outputHTML += `
+        <div class="translation-group">
+          <span class="translation-original">${sentence}</span>
+          <br>
+          <span class="translation-line error" data-index="${index}">
+            ${translationHTML}
+          </span>
+        </div>
+      `;
+    } else {
+      // Apply grammar markup if enabled
+      if (grammarEnabled && translationHTML) {
+        translationHTML = translationHTML
+          .replace(/<span style="color:darkred">/g, '<span class="noun">')
+          .replace(/<span style="color: darkred">/g, '<span class="noun">');
+      } else if (!grammarEnabled && translationHTML) {
+        translationHTML = translationHTML
+          .replace(/<strong>/g, '')
+          .replace(/<\/strong>/g, '')
+          .replace(/<span[^>]*>/g, '')
+          .replace(/<\/span>/g, '');
+      }
+      
+      outputHTML += `
+        <div class="translation-group">
+          <span class="translation-original">${sentence}</span>
+          <br>
+          <span class="translation-line" data-index="${index}" onclick="playSingleLine(${index})">
+            ${translationHTML || '<em>Geen vertaling beschikbaar</em>'}
+          </span>
+        </div>
+      `;
+    }
   });
   
+  updateDebugInfo(`Article translation completed`);
   return outputHTML;
-}
-
-/* ========= LOADING OVERLAY ========= */
-
-function showLoadingOverlay(text = "Laden...") {
-  const overlay = document.getElementById("loadingOverlay");
-  const textEl = document.getElementById("loadingText");
-  overlay.style.display = "flex";
-  textEl.textContent = text;
-}
-
-function hideLoadingOverlay() {
-  const overlay = document.getElementById("loadingOverlay");
-  overlay.style.display = "none";
-}
-
-function updateLoadingText(text) {
-  const textEl = document.getElementById("loadingText");
-  textEl.textContent = text;
 }
 
 /* ========= CLOUD SYNC + RSS ========= */
@@ -601,7 +635,7 @@ function applyHighlights(html, words) {
     .sort((a, b) => b.length - a.length)
     .map(w => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
     .join("|");
-  const regex = new RegExp(`\\b(${pattern})\\b(?=[^>]*<)`, "gi");
+  const regex = new RegExp(`\\b(${pattern})\b(?=[^>]*<)`, "gi");
   return html.replace(regex, m => `<mark class="custom-highlight">${m}</mark>`);
 }
 
@@ -670,13 +704,10 @@ async function loadArticle(index) {
       translateOn ? "flex" : "none";
 
     if (translateOn) {
-      showLoadingOverlay("Artikel verwerken...");
       html = await translateArticleContent(html, "pt-BR");
-      hideLoadingOverlay();
     } else {
       // Just show original content without translation
-      const text = html.replace(/<[^>]*>/g, ' ');
-      const sentences = splitIntoSentences(text);
+      const sentences = splitIntoSentences(html.replace(/<[^>]*>/g, ' '));
       
       html = sentences.map(sentence => `
         <div class="translation-group">
@@ -697,7 +728,7 @@ async function loadArticle(index) {
   } catch (error) {
     console.error("Fout bij laden artikel:", error);
     container.innerHTML = "Fout bij laden van artikel.";
-    hideLoadingOverlay();
+    updateDebugInfo(`Error loading article: ${error.message}`);
   }
 }
 
@@ -734,14 +765,12 @@ document.getElementById("carousel").addEventListener("click", (e) => {
 
 document.getElementById("toggleGrammar").addEventListener("change", function() {
   if (currentArticleData) {
-    // Reload current article with new grammar setting
     loadArticle(currentIndex);
   }
 });
 
 document.getElementById("toggleTranslate").addEventListener("change", function() {
   if (items.length > 0) {
-    // Reload current article
     loadArticle(currentIndex);
   }
 });
@@ -750,6 +779,7 @@ document.getElementById("toggleTranslate").addEventListener("change", function()
 
 async function init() {
   console.log("Reader initialiseren...");
+  updateDebugInfo("Initializing reader...");
   await startSync();
   loadSavedFeeds();
 
